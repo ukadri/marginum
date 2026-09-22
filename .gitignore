@@ -1,0 +1,44 @@
+# Measurement data - never commit, these run to gigabytes
+*.csv
+*.7z
+*.zip
+*.dat
+*.npy
+*.npz
+*.bin
+*.raw
+data/
+Marginum Measurement Data*/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
