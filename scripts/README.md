@@ -1,12 +1,28 @@
 # Scripts
 
-Working drafts shared on the group forum by Jonne Huovinen, committed **unchanged** so that the starting point is recorded before anyone edits them. The issues below are observations for the group to decide on, not changes that have been made.
+Two folders, kept separate while the group is still comparing approaches.
 
-## What they do
+`jonne/` holds Jonne Huovinen's scripts exactly as shared on the group
+forum, committed **unchanged** so the starting point stays recorded before
+anyone edits them. The issues below are observations for the group to
+decide on, not changes that have been made.
+
+`umar/` holds the validation script used to check detection against the
+labelled reference recording, and an alternative, rescaled version of the
+realtime streaming detector. See `docs/detection-findings.md` and
+`docs/realtime-validation-findings.md` for what each found.
+
+Once the group settles on parameters, or on a feature beyond amplitude for
+the classification step, these should collapse into one pipeline rather than
+staying split permanently.
+
+## What jonne/ does
 
 `greatdataconversionSGF.py` reads a CSV with Polars, applies a Savitzky-Golay filter to both channels, writes the result as float32 to `channel1.dat` and `channel2.dat`, then z-normalises both channels and computes a Dynamic Time Warping distance between them.
 
 `greatdatavisualizer.py` opens a log window, runs the conversion script as a subprocess while streaming its output into that window, then memory maps the two `.dat` files and plots them as two vertically stacked charts with linked x axes.
+
+`greatdatarealtime.py` reads a CSV in chunks on a background thread, removes baseline drift and applies a matched filter per chunk, writes the full resolution result to disk, and plots a downsampled version live. Shared 8 October, tested against the labelled reference recording in `docs/realtime-validation-findings.md`, the streaming architecture is sound but the filter and threshold are scaled about 11.6x narrower than the measured peak.
 
 ## What is right about them
 
@@ -43,3 +59,17 @@ Stacking the two channels on separate plots with `setXLink` is also right. Putti
 9. **The interpretation thresholds at lines 53 to 56** do not appear to come from a published source. They would need a citation or removal before going into the report.
 
 10. **The DTW runs on `[::100]` decimated data.** Reducing data before analysing it is the pattern to avoid. It is less damaging for shape comparison than for peak counting, but the habit is worth breaking early. Decimation belongs in the drawing path only.
+
+### greatdatarealtime.py, measured against the labelled reference recording
+
+Full numbers in `docs/realtime-validation-findings.md`. Summary:
+
+11. **The matched filter template is 100 samples, 2 ms, while the measured peak is 1166 samples, 23.3 ms.** The template is about 11.6x narrower than what it is meant to match, so it responds to ripples and noise inside a peak rather than to the peak shape.
+
+12. **The baseline removal uses `gaussian_filter1d(sigma=300)`, 6 ms, narrower than the peak itself.** A baseline window needs to be wider than the feature it removes drift around, not comparable to it, or it starts tracking the peak instead of only the drift.
+
+13. **`distance=50`, 1 ms, is far smaller than the peak width**, so a single peak's ringing in the matched filter output can be counted as several peaks.
+
+14. **The prominence threshold is 5% of each chunk's own local maximum, recomputed every million rows**, not a fixed physical value. It shifts with whatever else is in that chunk, which is why the water section, which has no real signal in it, still clears it.
+
+Measured effect of all four together, against the file with known counts, 19,520 peaks detected against a true count of 60, with water producing more false detections (3,686) than any real concentration region. The streaming architecture itself is sound, 299 MB peak memory regardless of file size, the parameters are what need fixing. `scripts/umar/realtime_detect.py` is the same architecture with the template, baseline, spacing and threshold rescaled to the measured peak, see `docs/realtime-validation-findings.md` for how much that does and does not fix.
