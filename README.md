@@ -28,25 +28,27 @@ The measurement data is **not in this repository**. See [docs/data-inventory.md]
 ## Requirements
 
 - Python 3.13 or newer
-- Packages: `numpy`, `polars`, `scipy`, `pyqtgraph`, `pyside6`, `fastdtw`
+- Packages: `numpy`, `pandas`, `polars`, `scipy`, `pyqtgraph`, `pyside6`, `fastdtw`
 
 Install into a virtual environment:
 
 ```
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install numpy polars scipy pyqtgraph pyside6 fastdtw
+pip install numpy pandas polars scipy pyqtgraph pyside6 fastdtw
 ```
 
 ## Running
 
-Place the CSV you want to work on in the working directory, then from `scripts/`:
+Place the CSV you want to work on in the working directory, then from `scripts/jonne/`:
 
 ```
 python greatdatavisualizer.py
 ```
 
 This runs the conversion first and then opens the viewer. See [scripts/README.md](scripts/README.md) for the known issues, because the scripts as committed do not run unmodified on every platform.
+
+For the detection validation scripts and what they found, see [scripts/umar/README.md](scripts/umar/README.md).
 
 ## Status
 
