@@ -271,7 +271,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # Signal plots (lines)
         self.curve1 = self.p1.plot(pen='g')
-        self.curve2 = self.p2.plot(pen='b')
+        self.curve2 = self.p2.plot(pen=pg.mkPen((255, 50, 170), width=1))  # bright pink, distinct from the orange/red peak categories
 
         # Marker Peaks, colour coded low/med/high (same chunk-relative
         # split Jonne's script already computed for the text log, just
@@ -301,8 +301,8 @@ class MainWindow(QtWidgets.QWidget):
         self.ov2_mins = np.array([], dtype=np.float32)
         self.ov2_maxs = np.array([], dtype=np.float32)
 
-        self.ov1_curve_min, self.ov1_curve_max, self.region1 = self._build_overview(self.p_overview1)
-        self.ov2_curve_min, self.ov2_curve_max, self.region2 = self._build_overview(self.p_overview2)
+        self.ov1_curve_min, self.ov1_curve_max, self.region1 = self._build_overview(self.p_overview1, (60, 200, 60))
+        self.ov2_curve_min, self.ov2_curve_max, self.region2 = self._build_overview(self.p_overview2, (255, 50, 170))
 
         self.region1.sigRegionChanged.connect(lambda: self.region_changed(self.region1))
         self.region2.sigRegionChanged.connect(lambda: self.region_changed(self.region2))
@@ -337,12 +337,12 @@ class MainWindow(QtWidgets.QWidget):
             labels[name] = legend.items[-1][1]
         return scatters, labels
 
-    def _build_overview(self, plot):
+    def _build_overview(self, plot, color):
         plot.setLabel('bottom', 'Time')
         plot.setMaximumHeight(120)
-        curve_min = plot.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
-        curve_max = plot.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
-        fill = pg.FillBetweenItem(curve_min, curve_max, brush=pg.mkBrush(80, 80, 200, 150))
+        curve_min = plot.plot(pen=pg.mkPen(color, width=1))
+        curve_max = plot.plot(pen=pg.mkPen(color, width=1))
+        fill = pg.FillBetweenItem(curve_min, curve_max, brush=pg.mkBrush(*color, 150))
         plot.addItem(fill)
         region = pg.LinearRegionItem()
         plot.addItem(region)
