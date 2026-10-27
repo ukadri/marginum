@@ -1,7 +1,9 @@
 """
-Run greatdatachunking_fixed.py's exact logic (fixed prominence 100, no
-per-chunk cap), chunked exactly as the real script would run it, against the
-labelled Big pieces reference recording.
+Run the fixed logic (fixed prominence 100, no per-chunk cap) applied to
+greatdatachunking.py, chunked exactly as the real script would run it,
+against the labelled Big pieces reference recording. The patched file this
+reproduces was posted to Jonne as v1, not committed here, see
+docs/chunking-validation-findings.md.
 
 This is what produced the 48 detections against a true count of 60 reported
 in docs/chunking-validation-findings.md, the closest any version has come.
@@ -18,7 +20,7 @@ from scipy.ndimage import uniform_filter1d
 
 FS = 50_000
 CHUNK_SIZE = 1_000_000
-PEAK_PROMINENCE = 100  # must match scripts/jonne... scripts/umar/greatdatachunking_fixed.py
+PEAK_PROMINENCE = 100  # must match the v1 update posted to Jonne
 
 REGIONS = [
     ("middle", 12, 76, 15),

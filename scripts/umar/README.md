@@ -124,14 +124,15 @@ python validate_chunking.py "Big pieces [15-high] [15-middle] [15-low] [15-zero]
 undercounts, the per-chunk cap clips real detections whenever a chunk holds
 more than 5 real events, which this densely packed recording does often.
 
-### sweep_chunking.py and greatdatachunking_fixed.py
+### sweep_chunking.py and validate_chunking_fixed.py
 
 `sweep_chunking.py` sweeps a fixed prominence against `greatdatachunking.py`'s
 baseline to find a value that does not depend on any one chunk.
-`greatdatachunking_fixed.py` is his script with exactly two changes, a fixed
-`PEAK_PROMINENCE = 100` instead of the chunk-relative threshold, and the
-per-chunk cap removed. Everything else, including the calibration and the
-plot, is unchanged.
+`validate_chunking_fixed.py` reproduces the result of applying that fix,
+a fixed `PEAK_PROMINENCE = 100` instead of the chunk-relative threshold, and
+the per-chunk cap removed, everything else unchanged. The actual patched
+file, v1, was posted to Jonne directly rather than committed here, see
+`docs/chunking-validation-findings.md`.
 
 ```
 python sweep_chunking.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
@@ -151,7 +152,7 @@ version tested so far. Full tables and the "still not solved" caveat in
 | `realtime_detect.py`, our rescale of the above | 53 | 7 | 2.24 s | 343 MB |
 | `greatdatarealtimer.py`, 15 Oct, Jonne's reply | 166 | 77 | | |
 | `greatdatachunking.py`, 27 Oct, as shared | 55 | 12 | | |
-| `greatdatachunking_fixed.py`, our fix of the above | 48 | 4 | 1.16 s | 335 MB |
+| v1, our update to the above, posted to Jonne | 48 | 4 | 1.16 s | 335 MB |
 
 All versions process the full 336.5 s file with memory bounded by chunk
 size, not file size, which is the point of the streaming architecture and

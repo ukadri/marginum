@@ -29,9 +29,9 @@ validation file.
 
 ## What we changed
 
-Two changes, in `scripts/umar/greatdatachunking_fixed.py`, everything else
-in the file, baseline removal, spacing, calibration, plotting, is identical
-to Jonne's version.
+Two changes, applied to a local copy of his file, not committed here,
+everything else, baseline removal, spacing, calibration, plotting, is
+identical to Jonne's version.
 
 1. **Fixed prominence instead of chunk-relative.** `noise_std * 10.0`,
    recomputed every chunk, replaced with a constant, `PEAK_PROMINENCE = 100`.

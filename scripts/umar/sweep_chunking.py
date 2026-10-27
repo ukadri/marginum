@@ -2,7 +2,8 @@
 Sweep a fixed, absolute prominence threshold against greatdatachunking.py's
 baseline (uniform filter, size 25000), full resolution, no matched filter,
 no chunk-relative threshold, no per-chunk cap, to find the value used as
-PEAK_PROMINENCE in greatdatachunking_fixed.py.
+PEAK_PROMINENCE in validate_chunking_fixed.py and in the v1 update posted to
+Jonne (not committed here, see docs/chunking-validation-findings.md).
 
 Usage:
     python sweep_chunking.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
