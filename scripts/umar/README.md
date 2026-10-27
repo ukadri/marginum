@@ -149,11 +149,13 @@ version tested so far. Full tables and the "still not solved" caveat in
 ### greatdatachunking_overview.py
 
 Builds on `greatdatachunking.py` with a GUI addition, a full-file overview
-strip, a min/max envelope of the whole recording (same idea as the M4 paper
-cited in the orientation task post), with a draggable region that pans and
-zooms the detail plots above it, so it works as a scroller. Also formats
-the time axis as minutes and seconds instead of raw seconds. Detection,
-baseline removal and the calibration are unchanged from his version.
+strip for each channel, a min/max envelope of the whole recording (same
+idea as the M4 paper cited in the orientation task post), each with a
+draggable region that pans and zooms the detail plots above. Drag either
+region, or zoom either detail plot directly, and all four stay in sync, so
+together they work as the scroller. Also formats the time axis as minutes
+and seconds instead of raw seconds. Detection, baseline removal and the
+calibration are unchanged from his version.
 
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so
@@ -163,10 +165,10 @@ it runs as committed on macOS as well as Linux.
 python greatdatachunking_overview.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
 ```
 
-Tested by actually driving it, not just reading the code, dragging the
-overview region and confirming the detail plots follow, then zooming the
-detail plots directly and confirming the region follows back. Screenshot
-in `docs/images/overview-scroller.png`.
+Tested by actually driving it, not just reading the code, dragging each
+overview region and confirming the detail plots and the other region
+follow, then zooming the detail plots directly and confirming both regions
+follow back. Screenshot in `docs/images/overview-scroller.png`.
 
 ## Findings, in one table
 

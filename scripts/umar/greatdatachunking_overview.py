@@ -5,16 +5,18 @@ and seconds
 Builds on greatdatachunking.py (27 October). Two additions, everything else
 in the file, baseline removal, detection, calibration, is unchanged.
 
-1. A third plot showing the whole file at once as a min/max envelope
-   (same idea as the M4 paper cited in the orientation task post, keep the
-   minimum and maximum of each group so narrow peaks never disappear).
-   It grows as chunks stream in and covers the full recording once
-   processing finishes. A draggable region on it pans and zooms the detail
-   plots below, so it also works as the scroller the supervisor asked
-   about, the two are the same feature.
+1. Two extra plots, one per channel, showing the whole file at once as a
+   min/max envelope (same idea as the M4 paper cited in the orientation
+   task post, keep the minimum and maximum of each group so narrow peaks
+   never disappear). They grow as chunks stream in and cover the full
+   recording once processing finishes. Each has a draggable region that
+   pans and zooms the detail plots above, so together they work as the
+   scroller the supervisor asked about too, it's the same feature. The two
+   regions, and the detail view, are kept in sync with each other, drag
+   either one and both update.
 
-2. The time axis on all three plots now reads minutes and seconds instead
-   of raw seconds.
+2. The time axis on every plot now reads minutes and seconds instead of
+   raw seconds.
 """
 
 import sys
@@ -58,7 +60,7 @@ class ProcessingWorker(QtCore.QThread):
     log_msg = QtCore.Signal(str)
     new_data = QtCore.Signal(np.ndarray, np.ndarray)
     new_peaks = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray, np.ndarray)
-    new_overview = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray)
+    new_overview = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
     finished = QtCore.Signal()
     error = QtCore.Signal(str)
 
@@ -175,9 +177,10 @@ class ProcessingWorker(QtCore.QThread):
                 self.new_data.emit(col_0_base[::ds_factor], col_1_base[::ds_factor])
                 self.new_peaks.emit(p1_times, p1_heights, p2_times, p2_heights)
 
-                # Send the full-file overview envelope for this chunk (channel 2)
-                ov_times, ov_mins, ov_maxs = overview_envelope(col_1_base, chunk_offset)
-                self.new_overview.emit(ov_times, ov_mins, ov_maxs)
+                # Send the full-file overview envelope for this chunk, both channels
+                ov_times, ov_mins1, ov_maxs1 = overview_envelope(col_0_base, chunk_offset)
+                _, ov_mins2, ov_maxs2 = overview_envelope(col_1_base, chunk_offset)
+                self.new_overview.emit(ov_times, ov_mins1, ov_maxs1, ov_mins2, ov_maxs2)
 
                 self.log_msg.emit(f"   -> Chunk {chunk_number} processed ({(chunk_number * chunk_size):,} rows).")
                 chunk_number += 1
@@ -242,28 +245,29 @@ class MainWindow(QtWidgets.QWidget):
         self.p1.addItem(self.scatter1)
         self.p2.addItem(self.scatter2)
 
-        # Overview strip, whole file, channel 2, min/max envelope
-        self.p_overview = self.plot_widget.addPlot(
-            row=2, col=0, title="Overview, whole file (Channel 2)",
+        # Overview strips, whole file, one per channel, min/max envelope.
+        # Both regions and the detail view are kept in sync, drag any one
+        # of the three and the other two follow.
+        self.p_overview1 = self.plot_widget.addPlot(
+            row=2, col=0, title="Overview, whole file (Channel 1)",
             axisItems={'bottom': TimeAxisItem(orientation='bottom')},
         )
-        self.p_overview.setLabel('bottom', 'Time')
-        self.p_overview.setMaximumHeight(120)
-        self.ov_curve_min = self.p_overview.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
-        self.ov_curve_max = self.p_overview.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
-        self.ov_fill = pg.FillBetweenItem(
-            self.ov_curve_min, self.ov_curve_max,
-            brush=pg.mkBrush(80, 80, 200, 150),
+        self.p_overview2 = self.plot_widget.addPlot(
+            row=3, col=0, title="Overview, whole file (Channel 2)",
+            axisItems={'bottom': TimeAxisItem(orientation='bottom')},
         )
-        self.p_overview.addItem(self.ov_fill)
-
-        # Draggable region, this is the scroller. Dragging or resizing it
-        # pans and zooms the detail plots above. Panning or zooming the
-        # detail plots moves the region back, kept in sync both ways.
-        self.region = pg.LinearRegionItem()
-        self.p_overview.addItem(self.region)
         self._syncing = False
-        self.region.sigRegionChanged.connect(self.region_changed)
+        self.ov_times = np.array([], dtype=float)
+        self.ov1_mins = np.array([], dtype=np.float32)
+        self.ov1_maxs = np.array([], dtype=np.float32)
+        self.ov2_mins = np.array([], dtype=np.float32)
+        self.ov2_maxs = np.array([], dtype=np.float32)
+
+        self.ov1_curve_min, self.ov1_curve_max, self.region1 = self._build_overview(self.p_overview1)
+        self.ov2_curve_min, self.ov2_curve_max, self.region2 = self._build_overview(self.p_overview2)
+
+        self.region1.sigRegionChanged.connect(lambda: self.region_changed(self.region1))
+        self.region2.sigRegionChanged.connect(lambda: self.region_changed(self.region2))
         self.p1.sigRangeChanged.connect(self.detail_range_changed)
 
         # Memory buffers for the plot
@@ -275,9 +279,6 @@ class MainWindow(QtWidgets.QWidget):
         self.p2_peak_times = np.array([], dtype=float)
         self.p2_peak_heights = np.array([], dtype=np.float32)
 
-        self.ov_times = np.array([], dtype=float)
-        self.ov_mins = np.array([], dtype=np.float32)
-        self.ov_maxs = np.array([], dtype=np.float32)
         self._region_initialized = False
 
         # Start background thread
@@ -288,6 +289,17 @@ class MainWindow(QtWidgets.QWidget):
         self.worker.new_overview.connect(self.update_overview)
         self.worker.error.connect(self.handle_error)
         self.worker.start()
+
+    def _build_overview(self, plot):
+        plot.setLabel('bottom', 'Time')
+        plot.setMaximumHeight(120)
+        curve_min = plot.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
+        curve_max = plot.plot(pen=pg.mkPen(120, 140, 255, 255, width=1))
+        fill = pg.FillBetweenItem(curve_min, curve_max, brush=pg.mkBrush(80, 80, 200, 150))
+        plot.addItem(fill)
+        region = pg.LinearRegionItem()
+        plot.addItem(region)
+        return curve_min, curve_max, region
 
     def append_log(self, text):
         self.text_box.append(text)
@@ -314,33 +326,43 @@ class MainWindow(QtWidgets.QWidget):
             self.p2_peak_heights = np.concatenate([self.p2_peak_heights, h2])
             self.scatter2.setData(x=self.p2_peak_times, y=self.p2_peak_heights)
 
-    def update_overview(self, times, mins, maxs):
+    def update_overview(self, times, mins1, maxs1, mins2, maxs2):
         if len(times) == 0:
             return
         self.ov_times = np.concatenate([self.ov_times, times])
-        self.ov_mins = np.concatenate([self.ov_mins, mins])
-        self.ov_maxs = np.concatenate([self.ov_maxs, maxs])
-        self.ov_curve_min.setData(x=self.ov_times, y=self.ov_mins)
-        self.ov_curve_max.setData(x=self.ov_times, y=self.ov_maxs)
+        self.ov1_mins = np.concatenate([self.ov1_mins, mins1])
+        self.ov1_maxs = np.concatenate([self.ov1_maxs, maxs1])
+        self.ov2_mins = np.concatenate([self.ov2_mins, mins2])
+        self.ov2_maxs = np.concatenate([self.ov2_maxs, maxs2])
 
-        # Pin the overview's own range to the full extent seen so far,
+        self.ov1_curve_min.setData(x=self.ov_times, y=self.ov1_mins)
+        self.ov1_curve_max.setData(x=self.ov_times, y=self.ov1_maxs)
+        self.ov2_curve_min.setData(x=self.ov_times, y=self.ov2_mins)
+        self.ov2_curve_max.setData(x=self.ov_times, y=self.ov2_maxs)
+
+        # Pin each overview's own range to the full extent seen so far,
         # rather than relying on auto-range, which doesn't reliably pick up
         # a pen=None curve's bounds. It grows as more chunks arrive and
         # settles on the whole file once streaming finishes.
-        self.p_overview.setXRange(0, self.ov_times[-1], padding=0.01)
-        self.p_overview.setYRange(self.ov_mins.min(), self.ov_maxs.max(), padding=0.05)
+        self.p_overview1.setXRange(0, self.ov_times[-1], padding=0.01)
+        self.p_overview1.setYRange(self.ov1_mins.min(), self.ov1_maxs.max(), padding=0.05)
+        self.p_overview2.setXRange(0, self.ov_times[-1], padding=0.01)
+        self.p_overview2.setYRange(self.ov2_mins.min(), self.ov2_maxs.max(), padding=0.05)
 
         if not self._region_initialized:
             # Start the scroller showing the first 20 seconds
-            self.region.setRegion((0, 20))
+            self.region1.setRegion((0, 20))
+            self.region2.setRegion((0, 20))
             self._region_initialized = True
 
-    def region_changed(self):
+    def region_changed(self, region):
         if self._syncing:
             return
         self._syncing = True
-        lo, hi = self.region.getRegion()
+        lo, hi = region.getRegion()
         self.p1.setXRange(lo, hi, padding=0)
+        other = self.region2 if region is self.region1 else self.region1
+        other.setRegion((lo, hi))
         self._syncing = False
 
     def detail_range_changed(self):
@@ -348,7 +370,8 @@ class MainWindow(QtWidgets.QWidget):
             return
         self._syncing = True
         lo, hi = self.p1.viewRange()[0]
-        self.region.setRegion((lo, hi))
+        self.region1.setRegion((lo, hi))
+        self.region2.setRegion((lo, hi))
         self._syncing = False
 
     def handle_error(self, err_text):
