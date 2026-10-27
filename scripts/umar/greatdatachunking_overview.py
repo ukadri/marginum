@@ -25,6 +25,13 @@ the calibration are unchanged.
    Because the split is relative to each chunk, not a fixed amplitude, the
    same absolute height can land in a different category in a quiet chunk
    than in a busy one, worth knowing before reading too much into a colour.
+
+4. A Reset View button. A stray click-drag directly on a detail plot (as
+   opposed to dragging the overview region, which is meant to be dragged)
+   can pull an axis to a strange range, for example one channel's peaks
+   compressing down to what looks like a flat line because the axis got
+   dragged out to 10x the real range. The button puts both axes back to
+   fit the actual data without needing to restart the script.
 """
 
 import sys
@@ -237,6 +244,12 @@ class MainWindow(QtWidgets.QWidget):
         self.text_box.setMaximumHeight(200)
         layout.addWidget(self.text_box)
 
+        # A stray click-drag directly on a plot (as opposed to the overview
+        # region) can drag an axis to a strange range, this undoes that.
+        self.reset_button = QtWidgets.QPushButton("Reset View")
+        self.reset_button.clicked.connect(self.reset_view)
+        layout.addWidget(self.reset_button)
+
         self.plot_widget = pg.GraphicsLayoutWidget()
         layout.addWidget(self.plot_widget)
 
@@ -412,6 +425,21 @@ class MainWindow(QtWidgets.QWidget):
         self.region1.setRegion((lo, hi))
         self.region2.setRegion((lo, hi))
         self._syncing = False
+
+    def reset_view(self):
+        # Detail plots: fit the Y axis to whatever's currently loaded,
+        # keep showing whatever time window the region currently marks.
+        self.p1.enableAutoRange(axis=pg.ViewBox.YAxis)
+        self.p2.enableAutoRange(axis=pg.ViewBox.YAxis)
+        lo, hi = self.region1.getRegion()
+        self.p1.setXRange(lo, hi, padding=0)
+
+        # Overview plots: back to the full file, same as every normal update.
+        if len(self.ov_times) > 0:
+            self.p_overview1.setXRange(0, self.ov_times[-1], padding=0.01)
+            self.p_overview1.setYRange(self.ov1_mins.min(), self.ov1_maxs.max(), padding=0.05)
+            self.p_overview2.setXRange(0, self.ov_times[-1], padding=0.01)
+            self.p_overview2.setYRange(self.ov2_mins.min(), self.ov2_maxs.max(), padding=0.05)
 
     def handle_error(self, err_text):
         self.text_box.append("\n!!! FATAL ERROR !!!\n")

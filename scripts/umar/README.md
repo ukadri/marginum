@@ -161,7 +161,10 @@ end of run text summary, just made visible on the chart. Worth knowing that
 split is relative to each chunk, not a fixed amplitude, so the same height
 can land in a different category depending what else is in that chunk.
 Detection, baseline removal and the calibration are unchanged from his
-version.
+version. There's also a Reset View button, a stray click-drag directly on a
+detail plot (not the overview region, which is meant to be dragged) can
+pull an axis out to a strange range, the button puts both back to fit the
+actual data without restarting.
 
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so
