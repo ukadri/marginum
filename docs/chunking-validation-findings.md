@@ -78,3 +78,27 @@ open question noted in `docs/detection-findings.md`, those are real suction
 events with no fluorophore in them). The underlying overlap between weak
 real peaks and artefacts hasn't gone away, this is a better-tuned version of
 the same approach, not a different one.
+
+## Large file test
+
+The labelled recording is only 336.5 s, useful for checking correctness but
+too small to say anything about "handle large files" on its own. The
+largest real file in the data answers that directly.
+
+`scripts/umar/greatdatachunking_overview.py` (the GUI build on top of this
+fix, see below) was run against
+`1. LONG_suction_HIGH_CONC_4ml_(and_3_times_resuction).csv`, from the
+suction archive, 7,594,201,725 bytes, 7.59 GB, the single largest file
+anywhere in the dataset, bigger than the brief's own roughly 6 GB estimate
+for a full 4 hour recording.
+
+```
+FINISHED in 122.5 s wall clock
+maximum resident set size: 1,061,224,448 bytes (about 1.06 GB)
+```
+
+About 2 minutes, just over 1 GB of memory, for a file over 50 times the size
+of the labelled recording. That's the real answer to the supervisor's
+question, memory stays close to flat regardless of file size, because the
+whole pipeline, reading, baseline removal, detection and the full-file
+overview, is chunked throughout, nothing loads the file whole.

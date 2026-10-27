@@ -179,6 +179,10 @@ overview region and confirming the detail plots and the other region
 follow, then zooming the detail plots directly and confirming both regions
 follow back. Screenshot in `docs/images/overview-scroller.png`.
 
+Also run end to end against the largest real file in the dataset, 7.59 GB,
+122.5 s and about 1.06 GB peak memory, see
+`docs/chunking-validation-findings.md`.
+
 ## Findings, in one table
 
 | | total detected | water (true 0) | time | peak memory |
