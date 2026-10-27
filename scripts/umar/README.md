@@ -154,8 +154,14 @@ idea as the M4 paper cited in the orientation task post), each with a
 draggable region that pans and zooms the detail plots above. Drag either
 region, or zoom either detail plot directly, and all four stay in sync, so
 together they work as the scroller. Also formats the time axis as minutes
-and seconds instead of raw seconds. Detection, baseline removal and the
-calibration are unchanged from his version.
+and seconds instead of raw seconds, and colours peak markers low/med/high
+with a legend showing a live running count per category, using the same
+0.33/0.66 of each chunk's own max split his script already computed for the
+end of run text summary, just made visible on the chart. Worth knowing that
+split is relative to each chunk, not a fixed amplitude, so the same height
+can land in a different category depending what else is in that chunk.
+Detection, baseline removal and the calibration are unchanged from his
+version.
 
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so

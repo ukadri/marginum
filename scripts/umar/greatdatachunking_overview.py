@@ -1,9 +1,9 @@
 """
-GreatDataRealTime.py, with a full-file overview and a time axis in minutes
-and seconds
+GreatDataRealTime.py, with a full-file overview, colour coded peaks and a
+time axis in minutes and seconds
 
-Builds on greatdatachunking.py (27 October). Two additions, everything else
-in the file, baseline removal, detection, calibration, is unchanged.
+Builds on greatdatachunking.py (27 October). Baseline removal, detection and
+the calibration are unchanged.
 
 1. Two extra plots, one per channel, showing the whole file at once as a
    min/max envelope (same idea as the M4 paper cited in the orientation
@@ -17,6 +17,14 @@ in the file, baseline removal, detection, calibration, is unchanged.
 
 2. The time axis on every plot now reads minutes and seconds instead of
    raw seconds.
+
+3. Peak markers are coloured low/med/high instead of all being plain red,
+   using the same 0.33/0.66 of each chunk's own max split his script
+   already computed for the end of run text summary, just made visible on
+   the chart, with a legend showing a live running count per category.
+   Because the split is relative to each chunk, not a fixed amplitude, the
+   same absolute height can land in a different category in a quiet chunk
+   than in a busy one, worth knowing before reading too much into a colour.
 """
 
 import sys
@@ -41,6 +49,12 @@ PEAK_PROMINENCE = 100
 # timescale means the same thing everywhere.
 OVERVIEW_BUCKET = 25000
 
+# Peak categories, low/med/high, a yellow to red scale matching the
+# amplitude split Jonne's script already computes (0.33 and 0.66 of each
+# chunk's own max) for the text log, just made visible on the chart too.
+CATEGORY_NAMES = ['low', 'med', 'high']
+CATEGORY_COLORS = [(230, 210, 40), (255, 140, 0), (230, 30, 30)]
+
 
 class TimeAxisItem(pg.AxisItem):
     """Shows tick labels as minutes:seconds instead of raw seconds."""
@@ -59,7 +73,7 @@ class TimeAxisItem(pg.AxisItem):
 class ProcessingWorker(QtCore.QThread):
     log_msg = QtCore.Signal(str)
     new_data = QtCore.Signal(np.ndarray, np.ndarray)
-    new_peaks = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray, np.ndarray)
+    new_peaks = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
     new_overview = QtCore.Signal(np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray)
     finished = QtCore.Signal()
     error = QtCore.Signal(str)
@@ -109,17 +123,25 @@ class ProcessingWorker(QtCore.QThread):
                 # Convert indices to seconds (50,000 Hz)
                 peak_times = (peaks + chunk_offset) / 50000.0
                 peak_heights = signal[peaks] if len(peaks) > 0 else np.array([])
+                # 0 = low, 1 = med, 2 = high, relative to this chunk's own
+                # max, same boundaries as the stats below, so the colours
+                # on the chart match the counts logged at the end.
+                peak_categories = np.zeros(len(peaks), dtype=int)
 
                 if len(peaks) > 0:
                     h = props['peak_heights']
                     stats['total'] += len(peaks)
 
                     local_max = np.max(signal)
+                    is_med = (h >= 0.33 * local_max) & (h < 0.66 * local_max)
+                    is_high = h >= 0.66 * local_max
+                    peak_categories[is_med] = 1
+                    peak_categories[is_high] = 2
                     stats['low'] += np.sum(h < 0.33 * local_max)
-                    stats['med'] += np.sum((h >= 0.33 * local_max) & (h < 0.66 * local_max))
-                    stats['high'] += np.sum(h >= 0.66 * local_max)
+                    stats['med'] += np.sum(is_med)
+                    stats['high'] += np.sum(is_high)
 
-                return peaks, peak_times, peak_heights
+                return peaks, peak_times, peak_heights, peak_categories
 
             def overview_envelope(signal, chunk_offset):
                 """Min and max of each OVERVIEW_BUCKET samples, same idea as
@@ -154,8 +176,8 @@ class ProcessingWorker(QtCore.QThread):
                 chunk_offset = (chunk_number - 1) * chunk_size
 
                 # Find peaks
-                p1_idx, p1_times, p1_heights = analyze_peaks(col_0_base, ch1_stats, chunk_offset)
-                p2_idx, p2_times, p2_heights = analyze_peaks(col_1_base, ch2_stats, chunk_offset)
+                p1_idx, p1_times, p1_heights, p1_cats = analyze_peaks(col_0_base, ch1_stats, chunk_offset)
+                p2_idx, p2_times, p2_heights, p2_cats = analyze_peaks(col_1_base, ch2_stats, chunk_offset)
 
                 # Log Channel 1 found peaks and calibrated volumes
                 for p_time, p_height in zip(p1_times, p1_heights):
@@ -175,7 +197,7 @@ class ProcessingWorker(QtCore.QThread):
                 # Send downsampled data (500x) to the GUI
                 ds_factor = 500
                 self.new_data.emit(col_0_base[::ds_factor], col_1_base[::ds_factor])
-                self.new_peaks.emit(p1_times, p1_heights, p2_times, p2_heights)
+                self.new_peaks.emit(p1_times, p1_heights, p1_cats, p2_times, p2_heights, p2_cats)
 
                 # Send the full-file overview envelope for this chunk, both channels
                 ov_times, ov_mins1, ov_maxs1 = overview_envelope(col_0_base, chunk_offset)
@@ -238,12 +260,15 @@ class MainWindow(QtWidgets.QWidget):
         self.curve1 = self.p1.plot(pen='g')
         self.curve2 = self.p2.plot(pen='b')
 
-        # Marker Peaks (Red crosses at peak locations)
-        pen_red = pg.mkPen('r', width=2)
-        self.scatter1 = pg.ScatterPlotItem(size=14, pen=pen_red, symbol='x')
-        self.scatter2 = pg.ScatterPlotItem(size=14, pen=pen_red, symbol='x')
-        self.p1.addItem(self.scatter1)
-        self.p2.addItem(self.scatter2)
+        # Marker Peaks, colour coded low/med/high (same chunk-relative
+        # split Jonne's script already computed for the text log, just
+        # made visible here too), with a live count in the legend.
+        self.legend1 = self.p1.addLegend(offset=(10, 10))
+        self.legend2 = self.p2.addLegend(offset=(10, 10))
+        self.scatters1, self.labels1 = self._build_category_scatters(self.p1, self.legend1)
+        self.scatters2, self.labels2 = self._build_category_scatters(self.p2, self.legend2)
+        self.counts1 = {'low': 0, 'med': 0, 'high': 0}
+        self.counts2 = {'low': 0, 'med': 0, 'high': 0}
 
         # Overview strips, whole file, one per channel, min/max envelope.
         # Both regions and the detail view are kept in sync, drag any one
@@ -274,10 +299,8 @@ class MainWindow(QtWidgets.QWidget):
         self.y1_plot_data = np.array([], dtype=np.float32)
         self.y2_plot_data = np.array([], dtype=np.float32)
 
-        self.p1_peak_times = np.array([], dtype=float)
-        self.p1_peak_heights = np.array([], dtype=np.float32)
-        self.p2_peak_times = np.array([], dtype=float)
-        self.p2_peak_heights = np.array([], dtype=np.float32)
+        self.peak_buf1 = {name: (np.array([]), np.array([], dtype=np.float32)) for name in CATEGORY_NAMES}
+        self.peak_buf2 = {name: (np.array([]), np.array([], dtype=np.float32)) for name in CATEGORY_NAMES}
 
         self._region_initialized = False
 
@@ -289,6 +312,17 @@ class MainWindow(QtWidgets.QWidget):
         self.worker.new_overview.connect(self.update_overview)
         self.worker.error.connect(self.handle_error)
         self.worker.start()
+
+    def _build_category_scatters(self, plot, legend):
+        scatters = {}
+        labels = {}
+        for name, color in zip(CATEGORY_NAMES, CATEGORY_COLORS):
+            scatter = pg.ScatterPlotItem(size=14, pen=pg.mkPen(color, width=2), symbol='x')
+            plot.addItem(scatter)
+            legend.addItem(scatter, f"{name.capitalize()}: 0")
+            scatters[name] = scatter
+            labels[name] = legend.items[-1][1]
+        return scatters, labels
 
     def _build_overview(self, plot):
         plot.setLabel('bottom', 'Time')
@@ -314,17 +348,22 @@ class MainWindow(QtWidgets.QWidget):
         self.curve1.setData(x=time_x, y=self.y1_plot_data)
         self.curve2.setData(x=time_x, y=self.y2_plot_data)
 
-    def update_peaks(self, t1, h1, t2, h2):
-        # Update red cross positions
-        if len(t1) > 0:
-            self.p1_peak_times = np.concatenate([self.p1_peak_times, t1])
-            self.p1_peak_heights = np.concatenate([self.p1_peak_heights, h1])
-            self.scatter1.setData(x=self.p1_peak_times, y=self.p1_peak_heights)
+    def update_peaks(self, t1, h1, c1, t2, h2, c2):
+        self._accumulate_peaks(t1, h1, c1, self.peak_buf1, self.scatters1, self.counts1, self.labels1)
+        self._accumulate_peaks(t2, h2, c2, self.peak_buf2, self.scatters2, self.counts2, self.labels2)
 
-        if len(t2) > 0:
-            self.p2_peak_times = np.concatenate([self.p2_peak_times, t2])
-            self.p2_peak_heights = np.concatenate([self.p2_peak_heights, h2])
-            self.scatter2.setData(x=self.p2_peak_times, y=self.p2_peak_heights)
+    def _accumulate_peaks(self, t, h, c, buf, scatters, counts, labels):
+        if len(t) == 0:
+            return
+        for i, name in enumerate(CATEGORY_NAMES):
+            mask = c == i
+            if not np.any(mask):
+                continue
+            times, heights = buf[name]
+            buf[name] = (np.concatenate([times, t[mask]]), np.concatenate([heights, h[mask]]))
+            counts[name] += int(mask.sum())
+            scatters[name].setData(x=buf[name][0], y=buf[name][1])
+            labels[name].setText(f"{name.capitalize()}: {counts[name]}")
 
     def update_overview(self, times, mins1, maxs1, mins2, maxs2):
         if len(times) == 0:
