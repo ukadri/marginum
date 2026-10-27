@@ -1,10 +1,10 @@
 # umar/
 
 Scripts that test detection against the one recording where the correct
-answer is known, `Big pieces reference data`, and an alternative, rescaled
-version of Jonne's realtime streaming detector. Anyone should be able to
-follow this file and reproduce every number quoted here and in
-`docs/detection-findings.md` and `docs/realtime-validation-findings.md`.
+answer is known, `Big pieces reference data`, plus alternative or fixed
+versions of Jonne's scripts. Anyone should be able to follow this file and
+reproduce every number quoted here and in `docs/detection-findings.md`,
+`docs/realtime-validation-findings.md` and `docs/chunking-validation-findings.md`.
 
 ## Setup
 
@@ -97,19 +97,66 @@ Full per-threshold table in `docs/realtime-validation-findings.md`, along
 with the caveat that this does not remove the underlying overlap problem,
 it only fixes the scale mismatch.
 
+### validate_realtimer.py
+
+Reproduces `scripts/jonne/greatdatarealtimer.py`'s exact logic, his 15
+October reply to the `realtime_detect.py` findings. Baseline window widened
+to 0.5 s and matched filter kept unchanged from the original.
+
+```
+python validate_realtimer.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
+```
+
+166 total against a true 60, down from 19,520, but water still produces 77
+false hits, the matched filter template was still untouched in this version.
+
+### validate_chunking.py
+
+Reproduces `scripts/jonne/greatdatachunking.py`'s exact logic, his 27
+October version, which drops the matched filter entirely and adds a cap of
+5 peaks per chunk.
+
+```
+python validate_chunking.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
+```
+
+55 total against 60, water down to 12, but every real region now
+undercounts, the per-chunk cap clips real detections whenever a chunk holds
+more than 5 real events, which this densely packed recording does often.
+
+### sweep_chunking.py and greatdatachunking_fixed.py
+
+`sweep_chunking.py` sweeps a fixed prominence against `greatdatachunking.py`'s
+baseline to find a value that does not depend on any one chunk.
+`greatdatachunking_fixed.py` is his script with exactly two changes, a fixed
+`PEAK_PROMINENCE = 100` instead of the chunk-relative threshold, and the
+per-chunk cap removed. Everything else, including the calibration and the
+plot, is unchanged.
+
+```
+python sweep_chunking.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
+python validate_chunking_fixed.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
+```
+
+48 total against 60, middle and high land exactly on 15, the closest of any
+version tested so far. Full tables and the "still not solved" caveat in
+`docs/chunking-validation-findings.md`.
+
 ## Findings, in one table
 
 | | total detected | water (true 0) | time | peak memory |
 |---|---|---|---|---|
 | expected | 60 | 0 | | |
-| Jonne's `greatdatarealtime.py`, as shared | 19,520 | 3,686 | 11.86 s | 299 MB |
-| `realtime_detect.py`, rescaled | 53 | 7 | 2.24 s | 343 MB |
+| `greatdatarealtime.py`, 8 Oct, as shared | 19,520 | 3,686 | 11.86 s | 299 MB |
+| `realtime_detect.py`, our rescale of the above | 53 | 7 | 2.24 s | 343 MB |
+| `greatdatarealtimer.py`, 15 Oct, Jonne's reply | 166 | 77 | | |
+| `greatdatachunking.py`, 27 Oct, as shared | 55 | 12 | | |
+| `greatdatachunking_fixed.py`, our fix of the above | 48 | 4 | 1.16 s | 335 MB |
 
-Both process the full 336.5 s file with memory bounded by chunk size, not
-file size, which is the point of the streaming architecture and holds for
-either version. Rescaling the template and baseline took the water false
-positive count down by about 500x and brought every real region within 2 of
-its true count, but did not solve the deeper problem, amplitude alone
-cannot fully separate real low concentration peaks from artefacts, see
+All versions process the full 336.5 s file with memory bounded by chunk
+size, not file size, which is the point of the streaming architecture and
+holds throughout. Each step along the way was a real improvement. The
+deeper problem hasn't gone away though, amplitude alone cannot fully
+separate real low concentration peaks from artefacts, see
 `docs/detection-findings.md`. That is still open and is what the
 classification step of Objective 2 needs to address next.
