@@ -97,6 +97,14 @@ FINISHED in 122.5 s wall clock
 maximum resident set size: 1,061,224,448 bytes (about 1.06 GB)
 ```
 
+Repeated with a screenshot taken right after it finished, 124.0 s this
+time, confirming the first run wasn't a fluke. Screenshot in
+`docs/images/bigfile-evidence.png`. The overview strips show the recording
+runs close to 4.5 hours with four distinct clusters of activity, matching
+"4 ml and 3 times resuction" in the filename, an initial suction plus three
+repeats. 541 peaks detected on channel 1, 936 on channel 2, across the
+whole recording.
+
 About 2 minutes, just over 1 GB of memory, for a file over 50 times the size
 of the labelled recording. That's the real answer to the supervisor's
 question, memory stays close to flat regardless of file size, because the
