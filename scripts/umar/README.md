@@ -185,6 +185,16 @@ gram-weight archive cross-check, and the caveat that the concentration
 thresholds are self-consistent within one recording session but not
 confirmed to transfer across sessions.
 
+There's also a "hide peaks below height" control, supervisor feedback that
+small peaks could be eliminated by threshold to focus on the bigger ones.
+Display only, doesn't touch `PEAK_PROMINENCE` or re-run detection, every
+peak is still found, this just filters what's shown. The legend counts,
+the in view counts, and the volume estimate (and the concentration it's
+based on) all respect the current floor too, since they all read from the
+same buffered peaks, re-derived from scratch on every floor change rather
+than appended incrementally, so raising or lowering it always reflects
+every peak seen so far. Screenshot in `docs/images/height-floor.png`.
+
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so
 it runs as committed on macOS as well as Linux.
@@ -201,8 +211,12 @@ the same peak buffers at three different windows plus after a direct zoom,
 and checking the volume estimate against an independent sum over the same
 buffers, all matching exactly. Also ran end to end against suction archive
 file 5 (1ml, no resuction, true answer known), whole file estimate came out
-0.90 ml channel 1, 0.79 ml channel 2. Screenshots in
-`docs/images/overview-scroller.png` and `docs/images/volume-and-inview.png`.
+0.90 ml channel 1, 0.79 ml channel 2. The height floor was checked the same
+way, legend counts, scatter points and in view counts at floor 0 and floor
+300 all matched an independent filter over the same buffers exactly, and
+returning the floor to 0 fully restored the original counts, confirming
+it's non-destructive. Screenshots in `docs/images/overview-scroller.png`,
+`docs/images/volume-and-inview.png` and `docs/images/height-floor.png`.
 
 Also run end to end against the largest real file in the dataset, 7.59 GB,
 122.5 s and about 1.06 GB peak memory, see

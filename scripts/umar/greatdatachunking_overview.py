@@ -61,6 +61,14 @@ the calibration are unchanged.
    Low versus zero/water is the same amplitude overlap noted throughout
    docs/detection-findings.md and isn't resolved by this, a window near
    that boundary can still be misclassified.
+
+8. A "hide peaks below height" control, supervisor feedback that small
+   peaks could be eliminated by threshold to focus on the bigger ones
+   later. Display only, doesn't touch PEAK_PROMINENCE or re-run
+   detection, every peak is still found, this just filters what's shown.
+   Every derived number, the legend counts, the in view counts, the
+   volume estimate and the concentration it's based on, respects the
+   current floor too, since they all read from the same buffered peaks.
 """
 
 import sys
@@ -343,6 +351,23 @@ class MainWindow(QtWidgets.QWidget):
         volume_row.addWidget(self.volume_label2)
         layout.addLayout(volume_row)
 
+        # Hide peaks below a chosen height, to focus on the bigger ones.
+        # Display-only, doesn't touch PEAK_PROMINENCE or re-run detection,
+        # every number derived from the buffered peaks (legend counts, in
+        # view counts, volume, concentration) respects it too.
+        self.height_floor = 0.0
+        floor_row = QtWidgets.QHBoxLayout()
+        floor_row.addWidget(QtWidgets.QLabel("Hide peaks below height:"))
+        self.floor_spin = QtWidgets.QDoubleSpinBox()
+        self.floor_spin.setRange(0.0, 100000.0)
+        self.floor_spin.setDecimals(1)
+        self.floor_spin.setSingleStep(10.0)
+        self.floor_spin.setValue(0.0)
+        self.floor_spin.valueChanged.connect(self.height_floor_changed)
+        floor_row.addWidget(self.floor_spin)
+        floor_row.addStretch()
+        layout.addLayout(floor_row)
+
         self.plot_widget = pg.GraphicsLayoutWidget()
         layout.addWidget(self.plot_widget)
 
@@ -468,8 +493,26 @@ class MainWindow(QtWidgets.QWidget):
                 continue
             times, heights = buf[name]
             buf[name] = (np.concatenate([times, t[mask]]), np.concatenate([heights, h[mask]]))
-            counts[name] += int(mask.sum())
-            scatters[name].setData(x=buf[name][0], y=buf[name][1])
+        self._redraw_channel(buf, scatters, counts, labels)
+
+    def height_floor_changed(self, value):
+        self.height_floor = value
+        self._redraw_channel(self.peak_buf1, self.scatters1, self.counts1, self.labels1)
+        self._redraw_channel(self.peak_buf2, self.scatters2, self.counts2, self.labels2)
+        self.update_view_stats()
+
+    def _redraw_channel(self, buf, scatters, counts, labels):
+        # Re-derives the legend's scatter points and counts from the full
+        # buffer every time, filtered to the current height floor, rather
+        # than appending incrementally, so raising or lowering the floor
+        # always reflects every peak seen so far, not just new ones.
+        for name in CATEGORY_NAMES:
+            times, heights = buf[name]
+            mask = heights >= self.height_floor if len(heights) else np.array([], dtype=bool)
+            shown_t = times[mask] if len(times) else times
+            shown_h = heights[mask] if len(heights) else heights
+            counts[name] = int(mask.sum())
+            scatters[name].setData(x=shown_t, y=shown_h)
             labels[name].setText(f"{name.capitalize()}: {counts[name]}")
 
     def update_overview(self, times, mins1, maxs1, mins2, maxs2):
@@ -538,16 +581,29 @@ class MainWindow(QtWidgets.QWidget):
         counts = {}
         total = 0
         for name in CATEGORY_NAMES:
-            times, _ = buf[name]
-            n = int(((times >= lo) & (times < hi)).sum()) if len(times) else 0
+            times, heights = buf[name]
+            if len(times):
+                mask = (times >= lo) & (times < hi) & (heights >= self.height_floor)
+                n = int(mask.sum())
+            else:
+                n = 0
             counts[name] = n
             total += n
         return (f"{title} in view: Low {counts['low']}, Med {counts['med']}, "
                 f"High {counts['high']} ({total} total)")
 
     def _channel_series(self, buf):
-        times_parts = [buf[name][0] for name in CATEGORY_NAMES if len(buf[name][0])]
-        heights_parts = [buf[name][1] for name in CATEGORY_NAMES if len(buf[name][1])]
+        # Respects the height floor too, so volume and concentration
+        # detection both ignore whatever's currently hidden.
+        times_parts, heights_parts = [], []
+        for name in CATEGORY_NAMES:
+            times, heights = buf[name]
+            if not len(heights):
+                continue
+            mask = heights >= self.height_floor
+            if np.any(mask):
+                times_parts.append(times[mask])
+                heights_parts.append(heights[mask])
         if not times_parts:
             return np.array([]), np.array([])
         return np.concatenate(times_parts), np.concatenate(heights_parts)
