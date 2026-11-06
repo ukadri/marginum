@@ -40,6 +40,18 @@ the calibration are unchanged.
    those same buffers to the region's current bounds, no new detection.
    Updates on every region drag, every detail plot zoom, and as new
    chunks stream in while that window is already on screen.
+
+6. An estimated volume per channel, whole file and in view, using the
+   sum of detected peak heights over the window divided by a fixed
+   constant per channel. That constant, VOLUME_CALIB_CH1/CH2 below, was
+   measured against the HIGH concentration suction archive (four files,
+   1/2/4 ml with varying resuction repeats), where summed peak height
+   divided by total ml actually suctioned landed in a fairly tight band
+   across all four files. The same check against the MIDDLE concentration
+   files in that archive gave a different, much noisier band, concentration
+   changes the signal scale independently of volume, so this estimate is
+   only valid for HIGH concentration data and is labelled that way in the
+   GUI. Making it work across concentration levels is future work.
 """
 
 import sys
@@ -69,6 +81,19 @@ OVERVIEW_BUCKET = 25000
 # chunk's own max) for the text log, just made visible on the chart too.
 CATEGORY_NAMES = ['low', 'med', 'high']
 CATEGORY_COLORS = [(230, 210, 40), (255, 140, 0), (230, 30, 30)]
+
+# Volume calibration, HIGH concentration only. Sum of detected peak
+# heights per ml actually suctioned (volume x (resuctions + 1)), averaged
+# across the four HIGH concentration files in the suction archive:
+#   file 5 (1ml, 0 resuctions):  4073.1 / 1ml  = 4073.1
+#   file 4 (1ml, 2 resuctions): 15468.5 / 3ml  = 5156.2
+#   file 3 (2ml, 2 resuctions): 28079.7 / 6ml  = 4680.0
+#   file 2 (4ml, 2 resuctions): 49815.2 / 12ml = 4151.3
+# Same check against the MIDDLE concentration files gave a much lower and
+# noisier band (180 to 720), so this constant does not apply there, see
+# the module docstring.
+VOLUME_CALIB_CH1 = 4515.1
+VOLUME_CALIB_CH2 = 23495.0
 
 
 class TimeAxisItem(pg.AxisItem):
@@ -267,6 +292,15 @@ class MainWindow(QtWidgets.QWidget):
         in_view_row.addWidget(self.in_view_label2)
         layout.addLayout(in_view_row)
 
+        # Estimated volume, whole file and in view. HIGH concentration
+        # calibration only, see VOLUME_CALIB_CH1/CH2 above.
+        volume_row = QtWidgets.QHBoxLayout()
+        self.volume_label1 = QtWidgets.QLabel("Channel 1 est. volume: pending")
+        self.volume_label2 = QtWidgets.QLabel("Channel 2 est. volume: pending")
+        volume_row.addWidget(self.volume_label1)
+        volume_row.addWidget(self.volume_label2)
+        layout.addLayout(volume_row)
+
         self.plot_widget = pg.GraphicsLayoutWidget()
         layout.addWidget(self.plot_widget)
 
@@ -381,7 +415,7 @@ class MainWindow(QtWidgets.QWidget):
     def update_peaks(self, t1, h1, c1, t2, h2, c2):
         self._accumulate_peaks(t1, h1, c1, self.peak_buf1, self.scatters1, self.counts1, self.labels1)
         self._accumulate_peaks(t2, h2, c2, self.peak_buf2, self.scatters2, self.counts2, self.labels2)
-        self.update_in_view_counts()
+        self.update_view_stats()
 
     def _accumulate_peaks(self, t, h, c, buf, scatters, counts, labels):
         if len(t) == 0:
@@ -424,7 +458,7 @@ class MainWindow(QtWidgets.QWidget):
             self.region1.setRegion((0, 20))
             self.region2.setRegion((0, 20))
             self._region_initialized = True
-            self.update_in_view_counts()
+            self.update_view_stats()
 
     def region_changed(self, region):
         if self._syncing:
@@ -435,7 +469,7 @@ class MainWindow(QtWidgets.QWidget):
         other = self.region2 if region is self.region1 else self.region1
         other.setRegion((lo, hi))
         self._syncing = False
-        self.update_in_view_counts()
+        self.update_view_stats()
 
     def detail_range_changed(self):
         if self._syncing:
@@ -445,9 +479,9 @@ class MainWindow(QtWidgets.QWidget):
         self.region1.setRegion((lo, hi))
         self.region2.setRegion((lo, hi))
         self._syncing = False
-        self.update_in_view_counts()
+        self.update_view_stats()
 
-    def update_in_view_counts(self):
+    def update_view_stats(self):
         if not self._region_initialized:
             return
         # Both regions are kept in sync, either one's bounds is the
@@ -455,6 +489,8 @@ class MainWindow(QtWidgets.QWidget):
         lo, hi = self.region1.getRegion()
         self.in_view_label1.setText(self._in_view_text("Channel 1", self.peak_buf1, lo, hi))
         self.in_view_label2.setText(self._in_view_text("Channel 2", self.peak_buf2, lo, hi))
+        self.volume_label1.setText(self._volume_text("Channel 1", self.peak_buf1, VOLUME_CALIB_CH1, lo, hi))
+        self.volume_label2.setText(self._volume_text("Channel 2", self.peak_buf2, VOLUME_CALIB_CH2, lo, hi))
 
     def _in_view_text(self, title, buf, lo, hi):
         counts = {}
@@ -466,6 +502,24 @@ class MainWindow(QtWidgets.QWidget):
             total += n
         return (f"{title} in view: Low {counts['low']}, Med {counts['med']}, "
                 f"High {counts['high']} ({total} total)")
+
+    def _channel_series(self, buf):
+        times_parts = [buf[name][0] for name in CATEGORY_NAMES if len(buf[name][0])]
+        heights_parts = [buf[name][1] for name in CATEGORY_NAMES if len(buf[name][1])]
+        if not times_parts:
+            return np.array([]), np.array([])
+        return np.concatenate(times_parts), np.concatenate(heights_parts)
+
+    def _volume_text(self, title, buf, calib, lo, hi):
+        times, heights = self._channel_series(buf)
+        total_ml = float(heights.sum()) / calib if len(heights) else 0.0
+        if len(times):
+            mask = (times >= lo) & (times < hi)
+            view_ml = float(heights[mask].sum()) / calib
+        else:
+            view_ml = 0.0
+        return (f"{title} est. volume (HIGH conc. calibration): "
+                f"whole file {total_ml:.2f} ml, in view {view_ml:.2f} ml")
 
     def reset_view(self):
         # Detail plots: fit the Y axis to whatever's currently loaded,

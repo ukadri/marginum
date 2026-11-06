@@ -173,6 +173,13 @@ just filtered to the region's current bounds, no new detection. Updates on
 every region drag, every detail plot zoom, and as new chunks stream in
 while that window is already on screen.
 
+And an estimated volume per channel, whole file and in view, sum of
+detected peak heights divided by a fixed constant measured against the
+HIGH concentration suction archive. Labelled "HIGH conc. calibration" in
+the GUI since it does not hold for MIDDLE, LOW or zero concentration data,
+see `docs/volume-estimate-findings.md` for the calibration numbers and why
+it's scoped that way.
+
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so
 it runs as committed on macOS as well as Linux.
@@ -184,9 +191,13 @@ python greatdatachunking_overview.py "Big pieces [15-high] [15-middle] [15-low] 
 Tested by actually driving it, not just reading the code, dragging each
 overview region and confirming the detail plots and the other region
 follow, then zooming the detail plots directly and confirming both regions
-follow back, and checking the in view counts against an independent count
-over the same peak buffers at three different windows plus after a direct
-zoom, all matching exactly. Screenshot in `docs/images/overview-scroller.png`.
+follow back, checking the in view counts against an independent count over
+the same peak buffers at three different windows plus after a direct zoom,
+and checking the volume estimate against an independent sum over the same
+buffers, all matching exactly. Also ran end to end against suction archive
+file 5 (1ml, no resuction, true answer known), whole file estimate came out
+0.90 ml channel 1, 0.79 ml channel 2. Screenshots in
+`docs/images/overview-scroller.png` and `docs/images/volume-and-inview.png`.
 
 Also run end to end against the largest real file in the dataset, 7.59 GB,
 122.5 s and about 1.06 GB peak memory, see
