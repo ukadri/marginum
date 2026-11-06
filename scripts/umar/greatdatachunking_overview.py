@@ -32,6 +32,14 @@ the calibration are unchanged.
    compressing down to what looks like a flat line because the axis got
    dragged out to 10x the real range. The button puts both axes back to
    fit the actual data without needing to restart the script.
+
+5. An "in view" count per channel, low/med/high and total, for whatever
+   time window the scroller is currently showing, next to the whole-file
+   running total already in the legend. Every peak already gets buffered
+   with its time and category for the legend counts, so this filters
+   those same buffers to the region's current bounds, no new detection.
+   Updates on every region drag, every detail plot zoom, and as new
+   chunks stream in while that window is already on screen.
 """
 
 import sys
@@ -250,6 +258,15 @@ class MainWindow(QtWidgets.QWidget):
         self.reset_button.clicked.connect(self.reset_view)
         layout.addWidget(self.reset_button)
 
+        # Counts for whatever window the scroller is currently showing,
+        # next to the whole-file running totals in the legend.
+        in_view_row = QtWidgets.QHBoxLayout()
+        self.in_view_label1 = QtWidgets.QLabel("Channel 1 in view: pending")
+        self.in_view_label2 = QtWidgets.QLabel("Channel 2 in view: pending")
+        in_view_row.addWidget(self.in_view_label1)
+        in_view_row.addWidget(self.in_view_label2)
+        layout.addLayout(in_view_row)
+
         self.plot_widget = pg.GraphicsLayoutWidget()
         layout.addWidget(self.plot_widget)
 
@@ -364,6 +381,7 @@ class MainWindow(QtWidgets.QWidget):
     def update_peaks(self, t1, h1, c1, t2, h2, c2):
         self._accumulate_peaks(t1, h1, c1, self.peak_buf1, self.scatters1, self.counts1, self.labels1)
         self._accumulate_peaks(t2, h2, c2, self.peak_buf2, self.scatters2, self.counts2, self.labels2)
+        self.update_in_view_counts()
 
     def _accumulate_peaks(self, t, h, c, buf, scatters, counts, labels):
         if len(t) == 0:
@@ -406,6 +424,7 @@ class MainWindow(QtWidgets.QWidget):
             self.region1.setRegion((0, 20))
             self.region2.setRegion((0, 20))
             self._region_initialized = True
+            self.update_in_view_counts()
 
     def region_changed(self, region):
         if self._syncing:
@@ -416,6 +435,7 @@ class MainWindow(QtWidgets.QWidget):
         other = self.region2 if region is self.region1 else self.region1
         other.setRegion((lo, hi))
         self._syncing = False
+        self.update_in_view_counts()
 
     def detail_range_changed(self):
         if self._syncing:
@@ -425,6 +445,27 @@ class MainWindow(QtWidgets.QWidget):
         self.region1.setRegion((lo, hi))
         self.region2.setRegion((lo, hi))
         self._syncing = False
+        self.update_in_view_counts()
+
+    def update_in_view_counts(self):
+        if not self._region_initialized:
+            return
+        # Both regions are kept in sync, either one's bounds is the
+        # current window.
+        lo, hi = self.region1.getRegion()
+        self.in_view_label1.setText(self._in_view_text("Channel 1", self.peak_buf1, lo, hi))
+        self.in_view_label2.setText(self._in_view_text("Channel 2", self.peak_buf2, lo, hi))
+
+    def _in_view_text(self, title, buf, lo, hi):
+        counts = {}
+        total = 0
+        for name in CATEGORY_NAMES:
+            times, _ = buf[name]
+            n = int(((times >= lo) & (times < hi)).sum()) if len(times) else 0
+            counts[name] = n
+            total += n
+        return (f"{title} in view: Low {counts['low']}, Med {counts['med']}, "
+                f"High {counts['high']} ({total} total)")
 
     def reset_view(self):
         # Detail plots: fit the Y axis to whatever's currently loaded,

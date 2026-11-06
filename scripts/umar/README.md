@@ -166,6 +166,13 @@ detail plot (not the overview region, which is meant to be dragged) can
 pull an axis out to a strange range, the button puts both back to fit the
 actual data without restarting.
 
+There's also an "in view" count per channel, low/med/high and total, for
+whatever window the scroller is currently showing, next to the whole-file
+running total already in the legend. Same peak buffers used for the legend,
+just filtered to the region's current bounds, no new detection. Updates on
+every region drag, every detail plot zoom, and as new chunks stream in
+while that window is already on screen.
+
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so
 it runs as committed on macOS as well as Linux.
@@ -177,7 +184,9 @@ python greatdatachunking_overview.py "Big pieces [15-high] [15-middle] [15-low] 
 Tested by actually driving it, not just reading the code, dragging each
 overview region and confirming the detail plots and the other region
 follow, then zooming the detail plots directly and confirming both regions
-follow back. Screenshot in `docs/images/overview-scroller.png`.
+follow back, and checking the in view counts against an independent count
+over the same peak buffers at three different windows plus after a direct
+zoom, all matching exactly. Screenshot in `docs/images/overview-scroller.png`.
 
 Also run end to end against the largest real file in the dataset, 7.59 GB,
 122.5 s and about 1.06 GB peak memory, see
