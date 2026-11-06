@@ -50,8 +50,17 @@ the calibration are unchanged.
    across all four files. The same check against the MIDDLE concentration
    files in that archive gave a different, much noisier band, concentration
    changes the signal scale independently of volume, so this estimate is
-   only valid for HIGH concentration data and is labelled that way in the
-   GUI. Making it work across concentration levels is future work.
+   only valid for HIGH concentration data.
+
+7. Rather than just assuming the data is HIGH concentration, the window
+   is checked first. classify_concentration() compares the window's
+   median peak height against thresholds taken from the one recording
+   where every concentration level is known, the labelled Big pieces
+   reference recording. When a window doesn't look HIGH, the volume field
+   says so instead of showing a number calibrated for the wrong regime.
+   Low versus zero/water is the same amplitude overlap noted throughout
+   docs/detection-findings.md and isn't resolved by this, a window near
+   that boundary can still be misclassified.
 """
 
 import sys
@@ -94,6 +103,39 @@ CATEGORY_COLORS = [(230, 210, 40), (255, 140, 0), (230, 30, 30)]
 # the module docstring.
 VOLUME_CALIB_CH1 = 4515.1
 VOLUME_CALIB_CH2 = 23495.0
+
+# Concentration detection, so the volume estimate above only shows up when
+# the window actually looks HIGH concentration instead of assuming it.
+# Thresholds are the geometric mean between each pair of neighbouring
+# concentration bands' median peak height on the one recording where the
+# concentration of every region is known, the labelled Big pieces
+# reference recording (region medians, channel 1 / channel 2):
+#   high   424.0 / 1073.2
+#   middle 167.1 /  529.6
+#   low    103.2 /  209.3
+#   zero/water (no ch1 detections at all, prominence 100 clears nothing
+#   there) / 45-49
+# Channel 1 never detects anything in the zero or water regions at the
+# current prominence, so "no peaks in the window" is its own zero/water
+# case rather than a height band. Channel 2 does get occasional false
+# detections there, hence the low threshold below. Low versus zero/water
+# is the same overlap noted throughout docs/detection-findings.md, this
+# does not resolve that, a window near that boundary can still be
+# misclassified either way.
+CH1_CONCENTRATION_THRESHOLDS = [('high', 266.1), ('middle', 131.4), ('low', 0.0)]
+CH2_CONCENTRATION_THRESHOLDS = [('high', 753.8), ('middle', 332.9), ('low', 99.1), ('zero_or_water', 0.0)]
+
+
+def classify_concentration(median_height, channel_idx):
+    """Label a window's typical peak height as high/middle/low/zero_or_water,
+    or 'no_peaks' if the window has no detections at all."""
+    if median_height is None:
+        return 'no_peaks'
+    thresholds = CH1_CONCENTRATION_THRESHOLDS if channel_idx == 0 else CH2_CONCENTRATION_THRESHOLDS
+    for label, lower_bound in thresholds:
+        if median_height >= lower_bound:
+            return label
+    return 'zero_or_water'
 
 
 class TimeAxisItem(pg.AxisItem):
@@ -489,8 +531,8 @@ class MainWindow(QtWidgets.QWidget):
         lo, hi = self.region1.getRegion()
         self.in_view_label1.setText(self._in_view_text("Channel 1", self.peak_buf1, lo, hi))
         self.in_view_label2.setText(self._in_view_text("Channel 2", self.peak_buf2, lo, hi))
-        self.volume_label1.setText(self._volume_text("Channel 1", self.peak_buf1, VOLUME_CALIB_CH1, lo, hi))
-        self.volume_label2.setText(self._volume_text("Channel 2", self.peak_buf2, VOLUME_CALIB_CH2, lo, hi))
+        self.volume_label1.setText(self._volume_text("Channel 1", self.peak_buf1, VOLUME_CALIB_CH1, 0, lo, hi))
+        self.volume_label2.setText(self._volume_text("Channel 2", self.peak_buf2, VOLUME_CALIB_CH2, 1, lo, hi))
 
     def _in_view_text(self, title, buf, lo, hi):
         counts = {}
@@ -510,16 +552,20 @@ class MainWindow(QtWidgets.QWidget):
             return np.array([]), np.array([])
         return np.concatenate(times_parts), np.concatenate(heights_parts)
 
-    def _volume_text(self, title, buf, calib, lo, hi):
+    def _volume_text(self, title, buf, calib, channel_idx, lo, hi):
         times, heights = self._channel_series(buf)
-        total_ml = float(heights.sum()) / calib if len(heights) else 0.0
-        if len(times):
-            mask = (times >= lo) & (times < hi)
-            view_ml = float(heights[mask].sum()) / calib
-        else:
-            view_ml = 0.0
-        return (f"{title} est. volume (HIGH conc. calibration): "
-                f"whole file {total_ml:.2f} ml, in view {view_ml:.2f} ml")
+        mask = (times >= lo) & (times < hi) if len(times) else np.array([], dtype=bool)
+        view_heights = heights[mask] if len(times) else np.array([])
+        whole_str = self._volume_part(heights, calib, channel_idx)
+        view_str = self._volume_part(view_heights, calib, channel_idx)
+        return f"{title} est. volume: whole file {whole_str}, in view {view_str}"
+
+    def _volume_part(self, heights, calib, channel_idx):
+        median_h = float(np.median(heights)) if len(heights) else None
+        conc = classify_concentration(median_h, channel_idx)
+        if conc != 'high':
+            return f"n/a ({conc.replace('_', '/')} detected, calibration is HIGH only)"
+        return f"{float(heights.sum()) / calib:.2f} ml"
 
     def reset_view(self):
         # Detail plots: fit the Y axis to whatever's currently loaded,

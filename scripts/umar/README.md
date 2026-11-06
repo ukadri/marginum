@@ -175,10 +175,15 @@ while that window is already on screen.
 
 And an estimated volume per channel, whole file and in view, sum of
 detected peak heights divided by a fixed constant measured against the
-HIGH concentration suction archive. Labelled "HIGH conc. calibration" in
-the GUI since it does not hold for MIDDLE, LOW or zero concentration data,
-see `docs/volume-estimate-findings.md` for the calibration numbers and why
-it's scoped that way.
+HIGH concentration suction archive. Rather than assuming the data is HIGH
+concentration, `classify_concentration()` checks the window's median peak
+height against thresholds taken from the labelled Big pieces recording
+first, and the volume field says what concentration it actually detected
+instead of showing a number when it isn't HIGH. See
+`docs/volume-estimate-findings.md` for the calibration numbers, the tumor
+gram-weight archive cross-check, and the caveat that the concentration
+thresholds are self-consistent within one recording session but not
+confirmed to transfer across sessions.
 
 Unlike his scripts, the CSV path is a command line argument, falling back
 to `2Gb signal.csv` if none is given, and there's no platform override, so

@@ -105,9 +105,72 @@ independent count over the same buffers at three different windows plus
 after a direct zoom, all matching exactly. Screenshot in
 `docs/images/volume-and-inview.png`.
 
+## Checked against the tumor gram-weight archive
+
+`Tumor 1 gr - 2 gr - 3 gr with resuction.7z`, extracted to `data/Tumor 1
+gr - 2 gr - 3 gr with resuction/`, ten files, all HIGH concentration
+(no MIDDLE/LOW variant in this archive), three independent 1 gram trials
+plus a 2 gram and a 3 gram trial, each with its own separate `_resuc` file
+(a second recording, not a second cluster inside the same file like the ml
+archive). No odt or readme in this archive, only the filenames say what
+each file is.
+
+Same detection, summed peak height divided by known gram weight for the
+five initial (non-resuc) files:
+
+```
+high_1gr_1  5827.2 / 1gr        high_1gr_2  8608.2 / 1gr
+high_1gr_3  8824.7 / 1gr        high_2gr    9133.8 / 2gr (per gram)
+high_3gr    9085.1 / 3gr (per gram)
+```
+
+Four of the five cluster tightly, 8608 to 9134, same order of magnitude as
+the ml-derived constant above (4515.1), a reasonable independent
+cross-check from a different session and a different physical unit.
+Every `_resuc` file came out lower than its matching initial file, all
+five pairs, read as the resuction recovering less material than the first
+pass rather than repeating the same amount, though that's inferred from
+the pattern, not confirmed by documentation. This archive is all HIGH
+concentration, so it doesn't add MIDDLE/LOW calibration points, only
+strengthens confidence in the existing HIGH one.
+
+## Concentration detection, so the estimate doesn't assume HIGH
+
+Added `classify_concentration()`, comparing a window's median peak height
+against thresholds taken from the one recording where every concentration
+level is known, the labelled Big pieces reference recording. Per-region
+median peak height there, channel 1 / channel 2:
+
+```
+high    424.0 / 1073.2
+middle  167.1 /  529.6
+low     103.2 /  209.3
+zero/water  no ch1 detections at all / 45-49
+```
+
+Thresholds are the geometric mean between each neighbouring pair. The
+volume field now only shows a number when the window's detected
+concentration is HIGH, otherwise it says what was detected instead.
+Checked against three pure-region windows of Big pieces itself (93-150s
+high, 12-76s middle, 158-212s low), each correctly labelled, and against a
+MIDDLE concentration suction file, correctly withheld the volume number.
+
+**Caveat worth being upfront about:** that last check also showed the
+limitation. The MIDDLE suction file's own peak heights (channel 1 median
+104, channel 2 median 208) landed in Big pieces' "low" band, not "middle",
+even though the file is unambiguously labelled MIDDLE concentration. The
+thresholds are self-consistent on the recording they were measured from,
+confirmed by the three Big pieces checks above, but don't necessarily
+transfer across different recording sessions, which likely have different
+absolute gain or setup. So this gates the volume estimate correctly
+within a single session, but a cross-session "is this really HIGH"
+answer should be treated as approximate, not definitive.
+
 ## Still open
 
-Making the volume estimate work across concentration levels, not just
-HIGH, needs either more calibration points per concentration than the two
-to four available here, or a way to estimate concentration from the
-signal first and apply the matching constant. Not started.
+Making the volume estimate work across concentration levels needs more
+calibration points per concentration than the two to four available here.
+Making concentration detection reliable across recording sessions, not
+just self-consistent within one, likely needs a relative measure (scaled
+against that same session's own known reference point) rather than
+absolute height thresholds. Neither started.
