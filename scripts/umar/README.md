@@ -146,6 +146,29 @@ python validate_chunking_fixed.py "Big pieces [15-high] [15-middle] [15-low] [15
 version tested so far. Full tables and the "still not solved" caveat in
 `docs/chunking-validation-findings.md`.
 
+### validate_snr.py
+
+The second discriminating feature `docs/detection-findings.md` said was
+needed, since amplitude alone can't separate real low concentration peaks
+from water/zero artefacts. Candidates are proposed with a loose prominence
+(20), then kept only if their local SNR, peak height divided by the noise
+std in a 0.5s window around the peak, clears a threshold (default 11,
+picked by sweeping). Chunked exactly like `validate_chunking_fixed.py`.
+
+```
+python validate_snr.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv"
+python validate_snr.py "Big pieces [15-high] [15-middle] [15-low] [15-zero] [water].csv" 9
+```
+
+At the default threshold, 54 total against 60, middle and high exact at
+15/15, low 12/15, zero 11/15 (up from v1's 1/15), water 1 false hit (down
+from v1's 4). Zero sitting at a local SNR between water and low, rather
+than next to either one, says the suction itself leaves a real, measurable
+footprint even without fluorophore, distinct from pure noise. Full sweep
+table, what else was tried and didn't work (width, asymmetry), and the
+caveat that this isn't wired into `greatdatachunking_overview.py` yet in
+`docs/snr-classification-findings.md`.
+
 ### greatdatachunking_overview.py
 
 Builds on `greatdatachunking.py` with a GUI addition, a full-file overview
@@ -232,11 +255,17 @@ Also run end to end against the largest real file in the dataset, 7.59 GB,
 | `greatdatarealtimer.py`, 15 Oct, Jonne's reply | 166 | 77 | | |
 | `greatdatachunking.py`, 27 Oct, as shared | 55 | 12 | | |
 | v1, our update to the above, posted to Jonne | 48 | 4 | 1.16 s | 335 MB |
+| `validate_snr.py`, local SNR, not amplitude alone | 54 | 1 | 1.17 s | 359 MB |
 
 All versions process the full 336.5 s file with memory bounded by chunk
 size, not file size, which is the point of the streaming architecture and
-holds throughout. Each step along the way was a real improvement. The
-deeper problem hasn't gone away though, amplitude alone cannot fully
-separate real low concentration peaks from artefacts, see
-`docs/detection-findings.md`. That is still open and is what the
-classification step of Objective 2 needs to address next.
+holds throughout. Each step along the way was a real improvement.
+Amplitude alone cannot fully separate real low concentration peaks from
+artefacts, see `docs/detection-findings.md`, that held for every version
+through v1. `validate_snr.py` is the first one to use a second feature
+instead of just amplitude, local SNR, and it's also the first version
+where zero concentration stops being almost completely missed (1/15 under
+every amplitude-only version, 11/15 here) while water also improves (4
+down to 1), see `docs/snr-classification-findings.md`. Not yet wired into
+`greatdatachunking_overview.py`, its volume calibration and concentration
+thresholds would need remeasuring against the new detection first.
