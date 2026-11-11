@@ -551,41 +551,47 @@ class MainWindow(QtWidgets.QWidget):
         ]])
         self.count_plot.setYRange(0, 1, padding=0.1)
 
-        # Two bars, channel 1 and channel 2, same colours as their curves
-        # on the detail plots. A text label sits over each bar since a
-        # height of 0 alone can't tell "0 ml" apart from "withheld, not
-        # HIGH concentration", see classify_concentration().
+        # Four bars, in view and whole file for each channel (a gap
+        # between the two channel groups), whole file is what actually
+        # estimates total tumor size, in view is just whatever window the
+        # scroller happens to be showing right now. Whole file bars use a
+        # dimmer version of the same channel colour. A text label sits
+        # over each bar since a height of 0 alone can't tell "0 ml" apart
+        # from "withheld, not HIGH concentration", see
+        # classify_concentration().
+        self.volume_bar_x = [0, 1, 2.5, 3.5]
         self.volume_bars = pg.BarGraphItem(
-            x=[0, 1], height=[0, 0], width=0.6,
-            brushes=[pg.mkBrush(60, 200, 60), pg.mkBrush(255, 50, 170)],
+            x=self.volume_bar_x, height=[0] * 4, width=0.6,
+            brushes=[pg.mkBrush(60, 200, 60), pg.mkBrush(60, 120, 60),
+                     pg.mkBrush(255, 50, 170), pg.mkBrush(150, 40, 110)],
         )
         self.volume_plot.addItem(self.volume_bars)
-        self.volume_plot.getAxis('bottom').setTicks([[(0, 'Channel 1'), (1, 'Channel 2')]])
+        self.volume_plot.getAxis('bottom').setTicks([[
+            (0, 'C1 view'), (1, 'C1 whole'), (2.5, 'C2 view'), (3.5, 'C2 whole'),
+        ]])
         self.volume_plot.setYRange(0, 1, padding=0.1)
-        self.volume_text1 = pg.TextItem('', anchor=(0.5, 1), color='w')
-        self.volume_text2 = pg.TextItem('', anchor=(0.5, 1), color='w')
-        self.volume_text1.setPos(0, 0)
-        self.volume_text2.setPos(1, 0)
-        self.volume_plot.addItem(self.volume_text1)
-        self.volume_plot.addItem(self.volume_text2)
+        self.volume_texts = [pg.TextItem('', anchor=(0.5, 1), color='w') for _ in range(4)]
+        for x, item in zip(self.volume_bar_x, self.volume_texts):
+            item.setPos(x, 0)
+            self.volume_plot.addItem(item)
 
-    def _update_stats_charts(self, counts1, counts2, vol1, vol2):
+    def _update_stats_charts(self, counts1, counts2, vol1_view, vol1_whole, vol2_view, vol2_whole):
         heights = [counts1['low'], counts1['med'], counts1['high'],
                    counts2['low'], counts2['med'], counts2['high']]
         self.count_bars.setOpts(height=heights)
         self.count_plot.setYRange(0, max(heights + [1]), padding=0.1)
 
-        vheights = [vol1 if vol1 is not None else 0.0, vol2 if vol2 is not None else 0.0]
+        vols = [vol1_view, vol1_whole, vol2_view, vol2_whole]
+        vheights = [v if v is not None else 0.0 for v in vols]
         self.volume_bars.setOpts(height=vheights)
         top = max(vheights + [1])
         # Extra headroom (0.3 vs the count chart's 0.1), the ml number
         # drawn above each bar needs room to not get clipped by the top
         # of the plot.
         self.volume_plot.setYRange(0, top, padding=0.3)
-        self.volume_text1.setPos(0, vheights[0])
-        self.volume_text1.setText(f"{vol1:.2f}" if vol1 is not None else "n/a")
-        self.volume_text2.setPos(1, vheights[1])
-        self.volume_text2.setText(f"{vol2:.2f}" if vol2 is not None else "n/a")
+        for x, h, v, item in zip(self.volume_bar_x, vheights, vols, self.volume_texts):
+            item.setPos(x, h)
+            item.setText(f"{v:.2f}" if v is not None else "n/a")
 
     def append_log(self, text):
         self.text_box.append(text)
@@ -704,7 +710,7 @@ class MainWindow(QtWidgets.QWidget):
         self.volume_label1.setText(self._volume_text("Channel 1", vol1_whole, vol1_view))
         self.volume_label2.setText(self._volume_text("Channel 2", vol2_whole, vol2_view))
 
-        self._update_stats_charts(counts1, counts2, vol1_view[0], vol2_view[0])
+        self._update_stats_charts(counts1, counts2, vol1_view[0], vol1_whole[0], vol2_view[0], vol2_whole[0])
 
     def _in_view_counts(self, buf, lo, hi):
         counts = {}
