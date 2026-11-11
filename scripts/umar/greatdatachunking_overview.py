@@ -375,10 +375,25 @@ class MainWindow(QtWidgets.QWidget):
 
         layout = QtWidgets.QVBoxLayout(self)
 
+        top_row = QtWidgets.QHBoxLayout()
         self.text_box = QtWidgets.QTextEdit()
         self.text_box.setReadOnly(True)
         self.text_box.setMaximumHeight(200)
-        layout.addWidget(self.text_box)
+        top_row.addWidget(self.text_box, stretch=3)
+
+        # Small live charts, the right side of this row was unused space
+        # before. Draws the same numbers the text rows below already
+        # print, in view peak counts (so the height floor's effect is
+        # visible, not just a changing number) and in view estimated
+        # volume. No new computation, update_view_stats() below feeds both.
+        self.stats_chart = pg.GraphicsLayoutWidget()
+        self.stats_chart.setMaximumHeight(200)
+        self.count_plot = self.stats_chart.addPlot(row=0, col=0, title="In view peak counts")
+        self.volume_plot = self.stats_chart.addPlot(row=0, col=1, title="In view est. volume (ml)")
+        self._build_stats_charts()
+        top_row.addWidget(self.stats_chart, stretch=2)
+
+        layout.addLayout(top_row)
 
         # A stray click-drag directly on a plot (as opposed to the overview
         # region) can drag an axis to a strange range, this undoes that.
@@ -520,6 +535,58 @@ class MainWindow(QtWidgets.QWidget):
         plot.addItem(region)
         return curve_min, curve_max, region
 
+    def _build_stats_charts(self):
+        # Six bars, low/med/high for each channel, same colours as the
+        # scatter legend so a bar's colour means the same thing it does
+        # on the detail plots above.
+        count_colors = CATEGORY_COLORS + CATEGORY_COLORS
+        self.count_bars = pg.BarGraphItem(
+            x=[0, 1, 2, 3, 4, 5], height=[0] * 6, width=0.6,
+            brushes=[pg.mkBrush(c) for c in count_colors],
+        )
+        self.count_plot.addItem(self.count_bars)
+        self.count_plot.getAxis('bottom').setTicks([[
+            (0, 'C1 low'), (1, 'C1 med'), (2, 'C1 high'),
+            (3, 'C2 low'), (4, 'C2 med'), (5, 'C2 high'),
+        ]])
+        self.count_plot.setYRange(0, 1, padding=0.1)
+
+        # Two bars, channel 1 and channel 2, same colours as their curves
+        # on the detail plots. A text label sits over each bar since a
+        # height of 0 alone can't tell "0 ml" apart from "withheld, not
+        # HIGH concentration", see classify_concentration().
+        self.volume_bars = pg.BarGraphItem(
+            x=[0, 1], height=[0, 0], width=0.6,
+            brushes=[pg.mkBrush(60, 200, 60), pg.mkBrush(255, 50, 170)],
+        )
+        self.volume_plot.addItem(self.volume_bars)
+        self.volume_plot.getAxis('bottom').setTicks([[(0, 'Channel 1'), (1, 'Channel 2')]])
+        self.volume_plot.setYRange(0, 1, padding=0.1)
+        self.volume_text1 = pg.TextItem('', anchor=(0.5, 1), color='w')
+        self.volume_text2 = pg.TextItem('', anchor=(0.5, 1), color='w')
+        self.volume_text1.setPos(0, 0)
+        self.volume_text2.setPos(1, 0)
+        self.volume_plot.addItem(self.volume_text1)
+        self.volume_plot.addItem(self.volume_text2)
+
+    def _update_stats_charts(self, counts1, counts2, vol1, vol2):
+        heights = [counts1['low'], counts1['med'], counts1['high'],
+                   counts2['low'], counts2['med'], counts2['high']]
+        self.count_bars.setOpts(height=heights)
+        self.count_plot.setYRange(0, max(heights + [1]), padding=0.1)
+
+        vheights = [vol1 if vol1 is not None else 0.0, vol2 if vol2 is not None else 0.0]
+        self.volume_bars.setOpts(height=vheights)
+        top = max(vheights + [1])
+        # Extra headroom (0.3 vs the count chart's 0.1), the ml number
+        # drawn above each bar needs room to not get clipped by the top
+        # of the plot.
+        self.volume_plot.setYRange(0, top, padding=0.3)
+        self.volume_text1.setPos(0, vheights[0])
+        self.volume_text1.setText(f"{vol1:.2f}" if vol1 is not None else "n/a")
+        self.volume_text2.setPos(1, vheights[1])
+        self.volume_text2.setText(f"{vol2:.2f}" if vol2 is not None else "n/a")
+
     def append_log(self, text):
         self.text_box.append(text)
 
@@ -626,23 +693,32 @@ class MainWindow(QtWidgets.QWidget):
         # Both regions are kept in sync, either one's bounds is the
         # current window.
         lo, hi = self.region1.getRegion()
-        self.in_view_label1.setText(self._in_view_text("Channel 1", self.peak_buf1, lo, hi))
-        self.in_view_label2.setText(self._in_view_text("Channel 2", self.peak_buf2, lo, hi))
-        self.volume_label1.setText(self._volume_text("Channel 1", self.peak_buf1, VOLUME_CALIB_CH1, 0, lo, hi))
-        self.volume_label2.setText(self._volume_text("Channel 2", self.peak_buf2, VOLUME_CALIB_CH2, 1, lo, hi))
 
-    def _in_view_text(self, title, buf, lo, hi):
+        counts1 = self._in_view_counts(self.peak_buf1, lo, hi)
+        counts2 = self._in_view_counts(self.peak_buf2, lo, hi)
+        self.in_view_label1.setText(self._in_view_text("Channel 1", counts1))
+        self.in_view_label2.setText(self._in_view_text("Channel 2", counts2))
+
+        vol1_whole, vol1_view = self._volume_values(self.peak_buf1, VOLUME_CALIB_CH1, 0, lo, hi)
+        vol2_whole, vol2_view = self._volume_values(self.peak_buf2, VOLUME_CALIB_CH2, 1, lo, hi)
+        self.volume_label1.setText(self._volume_text("Channel 1", vol1_whole, vol1_view))
+        self.volume_label2.setText(self._volume_text("Channel 2", vol2_whole, vol2_view))
+
+        self._update_stats_charts(counts1, counts2, vol1_view[0], vol2_view[0])
+
+    def _in_view_counts(self, buf, lo, hi):
         counts = {}
-        total = 0
         for name in CATEGORY_NAMES:
             times, heights = buf[name]
             if len(times):
                 mask = (times >= lo) & (times < hi) & (heights >= self.height_floor)
-                n = int(mask.sum())
+                counts[name] = int(mask.sum())
             else:
-                n = 0
-            counts[name] = n
-            total += n
+                counts[name] = 0
+        return counts
+
+    def _in_view_text(self, title, counts):
+        total = sum(counts.values())
         return (f"{title} in view: Low {counts['low']}, Med {counts['med']}, "
                 f"High {counts['high']} ({total} total)")
 
@@ -662,20 +738,26 @@ class MainWindow(QtWidgets.QWidget):
             return np.array([]), np.array([])
         return np.concatenate(times_parts), np.concatenate(heights_parts)
 
-    def _volume_text(self, title, buf, calib, channel_idx, lo, hi):
+    def _volume_values(self, buf, calib, channel_idx, lo, hi):
+        """Returns ((whole_ml_or_None, whole_conc), (view_ml_or_None, view_conc))."""
         times, heights = self._channel_series(buf)
         mask = (times >= lo) & (times < hi) if len(times) else np.array([], dtype=bool)
         view_heights = heights[mask] if len(times) else np.array([])
-        whole_str = self._volume_part(heights, calib, channel_idx)
-        view_str = self._volume_part(view_heights, calib, channel_idx)
-        return f"{title} est. volume: whole file {whole_str}, in view {view_str}"
+        return self._volume_part(heights, calib, channel_idx), self._volume_part(view_heights, calib, channel_idx)
 
     def _volume_part(self, heights, calib, channel_idx):
         median_h = float(np.median(heights)) if len(heights) else None
         conc = classify_concentration(median_h, channel_idx)
         if conc != 'high':
-            return f"n/a ({conc.replace('_', '/')} detected, calibration is HIGH only)"
-        return f"{float(heights.sum()) / calib:.2f} ml"
+            return None, conc
+        return float(heights.sum()) / calib, conc
+
+    def _volume_text(self, title, whole, view):
+        whole_val, whole_conc = whole
+        view_val, view_conc = view
+        whole_str = f"{whole_val:.2f} ml" if whole_val is not None else f"n/a ({whole_conc.replace('_', '/')} detected, calibration is HIGH only)"
+        view_str = f"{view_val:.2f} ml" if view_val is not None else f"n/a ({view_conc.replace('_', '/')} detected, calibration is HIGH only)"
+        return f"{title} est. volume: whole file {whole_str}, in view {view_str}"
 
     def reset_view(self):
         # Detail plots: fit the Y axis to whatever's currently loaded,
