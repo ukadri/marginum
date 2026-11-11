@@ -64,11 +64,30 @@ the calibration are unchanged.
 
 8. A "hide peaks below height" control, supervisor feedback that small
    peaks could be eliminated by threshold to focus on the bigger ones
-   later. Display only, doesn't touch PEAK_PROMINENCE or re-run
-   detection, every peak is still found, this just filters what's shown.
-   Every derived number, the legend counts, the in view counts, the
-   volume estimate and the concentration it's based on, respects the
-   current floor too, since they all read from the same buffered peaks.
+   later. Display only, doesn't touch candidate proposal, SNR filtering
+   or re-run detection, every peak is still found, this just filters
+   what's shown. Every derived number, the legend counts, the in view
+   counts, the volume estimate and the concentration it's based on,
+   respects the current floor too, since they all read from the same
+   buffered peaks.
+
+9. Detection itself changed, amplitude-only (a fixed PEAK_PROMINENCE)
+   to local SNR, a loose prominence proposes candidate peaks, each one
+   survives only if its height clears the noise floor measured in a
+   window around it. See docs/snr-classification-findings.md for why,
+   it fixed channel 2's zero and water regions at once, something no
+   amplitude threshold managed through every earlier version. Switching
+   detection changes which peaks get found, so VOLUME_CALIB_CH1/CH2 and
+   both CONCENTRATION_THRESHOLDS below were remeasured against it, not
+   carried over from the amplitude-only version. The volume calibration
+   came out noisier doing this, channel 1's per-file ratio across the
+   four HIGH suction files now spans 569 to 1056 (was a tight 4151 to
+   5156), smaller suctioned volumes seem to keep proportionally more
+   SNR-surviving peaks. Still the better total-error result overall, so
+   kept as the live default, but worth knowing before reading too much
+   into any single volume number. Channel 1 also doesn't get the same
+   zero/water fix channel 2 does, its zero region stays at about 1 of 15
+   detected either way, see the findings doc for the per-channel split.
 """
 
 import sys
@@ -84,9 +103,16 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 from scipy.signal import find_peaks
 from scipy.ndimage import uniform_filter1d
 
-# Fixed prominence, not relative to any one chunk. Picked by sweeping
-# against the labelled Big pieces reference recording.
-PEAK_PROMINENCE = 100
+# Detection is no longer amplitude-only. A loose prominence proposes
+# candidate peaks, local SNR (peak height over the noise std in a 0.5s
+# window around it, a small core right at the peak excluded so it can't
+# inflate its own noise estimate) decides which survive. Picked by
+# sweeping against the labelled Big pieces reference recording, see
+# docs/snr-classification-findings.md.
+CANDIDATE_PROMINENCE = 20
+SNR_THRESHOLD = 11.0
+SNR_CORE = int(0.006 * 50_000)
+SNR_NOISE_WIN = int(0.25 * 50_000)
 
 # Overview bucket size. 25000 samples (0.5 s) matches the baseline window
 # and minimum spacing already used elsewhere in this script, so the same
@@ -99,39 +125,62 @@ OVERVIEW_BUCKET = 25000
 CATEGORY_NAMES = ['low', 'med', 'high']
 CATEGORY_COLORS = [(230, 210, 40), (255, 140, 0), (230, 30, 30)]
 
-# Volume calibration, HIGH concentration only. Sum of detected peak
-# heights per ml actually suctioned (volume x (resuctions + 1)), averaged
-# across the four HIGH concentration files in the suction archive:
-#   file 5 (1ml, 0 resuctions):  4073.1 / 1ml  = 4073.1
-#   file 4 (1ml, 2 resuctions): 15468.5 / 3ml  = 5156.2
-#   file 3 (2ml, 2 resuctions): 28079.7 / 6ml  = 4680.0
-#   file 2 (4ml, 2 resuctions): 49815.2 / 12ml = 4151.3
-# Same check against the MIDDLE concentration files gave a much lower and
-# noisier band (180 to 720), so this constant does not apply there, see
-# the module docstring.
-VOLUME_CALIB_CH1 = 4515.1
-VOLUME_CALIB_CH2 = 23495.0
+# Volume calibration, HIGH concentration only, remeasured against local
+# SNR detection (see module docstring point 9). Sum of SNR-surviving peak
+# heights per ml actually suctioned (volume x (resuctions + 1)):
+#                            channel 1              channel 2
+#   file 5 (1ml, 0 resuc):   932.1/1ml  = 932.1    3291.6/1ml  = 3291.6
+#   file 4 (1ml, 2 resuc):  3168.7/3ml  = 1056.2  31338.3/3ml  = 10446.1
+#   file 3 (2ml, 2 resuc):  3414.2/6ml  = 569.0   26386.6/6ml  = 4397.8
+#   file 2 (4ml, 2 resuc):  6847.7/12ml = 570.6   39131.0/12ml = 3260.9
+# Noisier than the amplitude-only version (channel 1 was a tight 4151 to
+# 5156), smaller suctioned volumes keep proportionally more SNR-surviving
+# peaks here. Average used as the constant anyway, same approach as
+# before, caveat documented in docs/snr-classification-findings.md.
+VOLUME_CALIB_CH1 = 782.0
+VOLUME_CALIB_CH2 = 5349.1
 
 # Concentration detection, so the volume estimate above only shows up when
 # the window actually looks HIGH concentration instead of assuming it.
 # Thresholds are the geometric mean between each pair of neighbouring
-# concentration bands' median peak height on the one recording where the
-# concentration of every region is known, the labelled Big pieces
-# reference recording (region medians, channel 1 / channel 2):
-#   high   424.0 / 1073.2
-#   middle 167.1 /  529.6
-#   low    103.2 /  209.3
-#   zero/water (no ch1 detections at all, prominence 100 clears nothing
-#   there) / 45-49
-# Channel 1 never detects anything in the zero or water regions at the
-# current prominence, so "no peaks in the window" is its own zero/water
-# case rather than a height band. Channel 2 does get occasional false
-# detections there, hence the low threshold below. Low versus zero/water
-# is the same overlap noted throughout docs/detection-findings.md, this
-# does not resolve that, a window near that boundary can still be
-# misclassified either way.
-CH1_CONCENTRATION_THRESHOLDS = [('high', 266.1), ('middle', 131.4), ('low', 0.0)]
-CH2_CONCENTRATION_THRESHOLDS = [('high', 753.8), ('middle', 332.9), ('low', 99.1), ('zero_or_water', 0.0)]
+# concentration bands' median peak height on the Big pieces reference
+# recording, remeasured against local SNR detection (region medians,
+# channel 1 / channel 2, 15 expected per region):
+#   high   424.0 / 1073.2   (n=15/15, unchanged from amplitude-only)
+#   middle 167.1 /  529.6   (n=14/15, unchanged from amplitude-only)
+#   low     77.2 /  208.5   (n=12/12, channel 1's median dropped from
+#                            103.2, SNR filtering keeps a slightly
+#                            different, weaker set of low peaks here)
+#   zero     26.6 /   46.3  (n=1/11, channel 2 recovers most of this band
+#                            now, see docs/snr-classification-findings.md;
+#                            channel 1 still barely detects anything here)
+#   water      -- /   35.9  (n=0/1)
+# Channel 1 still essentially never detects in the zero or water regions,
+# so "no peaks in the window" remains its own zero/water case rather than
+# a height band. Channel 2's low/zero boundary barely moved (98.3 versus
+# the old 99.1). Low versus zero/water is still the same overlap noted
+# throughout docs/detection-findings.md, not resolved by this, a window
+# near that boundary can still be misclassified either way.
+CH1_CONCENTRATION_THRESHOLDS = [('high', 266.2), ('middle', 113.6), ('low', 0.0)]
+CH2_CONCENTRATION_THRESHOLDS = [('high', 753.9), ('middle', 332.3), ('low', 98.3), ('zero_or_water', 0.0)]
+
+
+def local_snr(flat, peaks):
+    """Each candidate peak's height divided by the std of the surrounding
+    baseline-removed signal, 0.5s window either side, a small core right
+    at the peak excluded so it can't inflate its own noise estimate."""
+    out = np.empty(len(peaks))
+    for i, p in enumerate(peaks):
+        lo = max(0, p - SNR_NOISE_WIN)
+        hi = min(len(flat), p + SNR_NOISE_WIN)
+        local = flat[lo:hi].copy()
+        c0 = max(0, p - SNR_CORE - lo)
+        c1 = min(len(local), p + SNR_CORE - lo)
+        mask = np.ones(len(local), dtype=bool)
+        mask[c0:c1] = False
+        noise_std = local[mask].std() if mask.sum() > 10 else np.nan
+        out[i] = flat[p] / noise_std if noise_std and noise_std > 0 else np.nan
+    return out
 
 
 def classify_concentration(median_height, channel_idx):
@@ -200,13 +249,17 @@ class ProcessingWorker(QtCore.QThread):
             # =========================================================
 
             def analyze_peaks(signal, stats, chunk_offset):
-                # Fixed threshold, see PEAK_PROMINENCE at the top of the file.
-                min_prom = PEAK_PROMINENCE
-
                 # Safe distance: 25000 = 0.5 seconds of silence between impacts
                 min_distance = 25000
 
-                peaks, props = find_peaks(signal, height=0, distance=min_distance, prominence=min_prom)
+                # Candidates proposed loose, local SNR decides which survive,
+                # see CANDIDATE_PROMINENCE/SNR_THRESHOLD at the top of the file.
+                candidates, _ = find_peaks(signal, height=0, distance=min_distance, prominence=CANDIDATE_PROMINENCE)
+                if len(candidates) > 0:
+                    snr = local_snr(signal, candidates)
+                    peaks = candidates[snr >= SNR_THRESHOLD]
+                else:
+                    peaks = candidates
 
                 # No per-chunk cap, see the module docstring for why.
 
@@ -219,7 +272,7 @@ class ProcessingWorker(QtCore.QThread):
                 peak_categories = np.zeros(len(peaks), dtype=int)
 
                 if len(peaks) > 0:
-                    h = props['peak_heights']
+                    h = peak_heights
                     stats['total'] += len(peaks)
 
                     local_max = np.max(signal)
@@ -352,9 +405,10 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(volume_row)
 
         # Hide peaks below a chosen height, to focus on the bigger ones.
-        # Display-only, doesn't touch PEAK_PROMINENCE or re-run detection,
-        # every number derived from the buffered peaks (legend counts, in
-        # view counts, volume, concentration) respects it too.
+        # Display-only, doesn't touch candidate proposal, SNR filtering or
+        # re-run detection, every number derived from the buffered peaks
+        # (legend counts, in view counts, volume, concentration) respects
+        # it too.
         self.height_floor = 0.0
         floor_row = QtWidgets.QHBoxLayout()
         floor_row.addWidget(QtWidgets.QLabel("Hide peaks below height:"))

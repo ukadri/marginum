@@ -183,11 +183,13 @@ with a legend showing a live running count per category, using the same
 end of run text summary, just made visible on the chart. Worth knowing that
 split is relative to each chunk, not a fixed amplitude, so the same height
 can land in a different category depending what else is in that chunk.
-Detection, baseline removal and the calibration are unchanged from his
-version. There's also a Reset View button, a stray click-drag directly on a
-detail plot (not the overview region, which is meant to be dragged) can
-pull an axis out to a strange range, the button puts both back to fit the
-actual data without restarting.
+Baseline removal is unchanged from his version. Detection is not, as of
+11 November 2026 it's local SNR instead of his fixed amplitude threshold,
+see `validate_snr.py` above and `docs/snr-classification-findings.md` for
+why and what changed. There's also a Reset View button, a stray click-drag
+directly on a detail plot (not the overview region, which is meant to be
+dragged) can pull an axis out to a strange range, the button puts both
+back to fit the actual data without restarting.
 
 There's also an "in view" count per channel, low/med/high and total, for
 whatever window the scroller is currently showing, next to the whole-file
@@ -202,16 +204,20 @@ HIGH concentration suction archive. Rather than assuming the data is HIGH
 concentration, `classify_concentration()` checks the window's median peak
 height against thresholds taken from the labelled Big pieces recording
 first, and the volume field says what concentration it actually detected
-instead of showing a number when it isn't HIGH. See
-`docs/volume-estimate-findings.md` for the calibration numbers, the tumor
-gram-weight archive cross-check, and the caveat that the concentration
-thresholds are self-consistent within one recording session but not
-confirmed to transfer across sessions.
+instead of showing a number when it isn't HIGH. Both the calibration
+constant and the thresholds were remeasured against local SNR detection,
+see `docs/snr-classification-findings.md` for the new numbers and a real
+regression found while checking it, channel 1 now misreads one known
+1ml suction file as MIDDLE instead of HIGH. `docs/volume-estimate-findings.md`
+still has the original amplitude-only derivation, the tumor gram-weight
+archive cross-check, and the caveat that the concentration thresholds are
+self-consistent within one recording session but not confirmed to
+transfer across sessions, both still apply.
 
 There's also a "hide peaks below height" control, supervisor feedback that
 small peaks could be eliminated by threshold to focus on the bigger ones.
-Display only, doesn't touch `PEAK_PROMINENCE` or re-run detection, every
-peak is still found, this just filters what's shown. The legend counts,
+Display only, doesn't touch candidate proposal, SNR filtering or re-run
+detection, every peak is still found, this just filters what's shown. The legend counts,
 the in view counts, and the volume estimate (and the concentration it's
 based on) all respect the current floor too, since they all read from the
 same buffered peaks, re-derived from scratch on every floor change rather
@@ -234,7 +240,11 @@ the same peak buffers at three different windows plus after a direct zoom,
 and checking the volume estimate against an independent sum over the same
 buffers, all matching exactly. Also ran end to end against suction archive
 file 5 (1ml, no resuction, true answer known), whole file estimate came out
-0.90 ml channel 1, 0.79 ml channel 2. The height floor was checked the same
+0.90 ml channel 1, 0.79 ml channel 2 under the original amplitude-only
+detection. Re-ran the same check after local SNR replaced it, channel 1
+now reads MIDDLE instead of HIGH for this file and withholds a number,
+channel 2 still reads HIGH but at 0.62 ml, further from the true 1.0 ml,
+see `docs/snr-classification-findings.md`. The height floor was checked the same
 way, legend counts, scatter points and in view counts at floor 0 and floor
 300 all matched an independent filter over the same buffers exactly, and
 returning the floor to 0 fully restored the original counts, confirming

@@ -127,11 +127,65 @@ that the detector is now capable of consistently finding those events
 while also rejecting water far better than before, which it wasn't
 before, regardless of how that question gets answered.
 
-**Not yet wired into `greatdatachunking_overview.py`.** That script's
-volume calibration (`VOLUME_CALIB_CH1/CH2`) and concentration thresholds
-(`classify_concentration`) were both measured against the old
-`PEAK_PROMINENCE`-only detection. Switching detection logic changes which
-peaks get found and their heights, so both would need remeasuring against
-whatever the new candidate set looks like before this replaces the live
-detection there. Kept as a validated standalone finding for now, not a
-swapped-in replacement.
+## Wired into the live GUI, 11 November 2026
+
+`greatdatachunking_overview.py` now detects with this, candidates proposed
+at `CANDIDATE_PROMINENCE=20`, kept at `SNR_THRESHOLD=11.0`, replacing the
+old fixed `PEAK_PROMINENCE=100`. `VOLUME_CALIB_CH1/CH2` and both
+`CONCENTRATION_THRESHOLDS` were remeasured against it, not carried over,
+using `recalibrate_snr.py` (scratch script, not committed, reproduced from
+this doc's numbers if needed) run against the Big pieces reference
+recording and the four HIGH suction archive files, same chunk size
+(1,000,000 rows) as the live script.
+
+Per-region median peak height, channel 1 / channel 2 (15 expected per
+region):
+
+| region | ch1 n | ch1 median | ch2 n | ch2 median |
+|---|---|---|---|---|
+| middle | 14 | 167.1 | 15 | 529.6 |
+| high | 15 | 424.0 | 15 | 1073.2 |
+| low | 12 | 77.2 | 12 | 208.5 |
+| zero | 1 | 26.6 | 11 | 46.3 |
+| water | 0 | -- | 1 | 35.9 |
+
+High and middle medians are unchanged from the amplitude-only version on
+both channels, those peaks clear both the old fixed prominence and the new
+SNR filter identically. Low's channel 1 median dropped from 103.2 to 77.2,
+a slightly different, weaker set of 12 peaks survives now. New
+concentration thresholds (geometric mean of neighbouring bands):
+`CH1_CONCENTRATION_THRESHOLDS = [('high', 266.2), ('middle', 113.6), ('low', 0.0)]`,
+`CH2_CONCENTRATION_THRESHOLDS = [('high', 753.9), ('middle', 332.3), ('low', 98.3), ('zero_or_water', 0.0)]`,
+both barely moved from the amplitude-only version's thresholds.
+
+Volume calibration, same four HIGH suction files, sum of SNR-surviving
+peak heights per ml actually suctioned:
+
+| file | total ml | ch1 sum | ch1/ml | ch2 sum | ch2/ml |
+|---|---|---|---|---|---|
+| 5 (1ml, 0 resuc) | 1 | 932.1 | 932.1 | 3291.6 | 3291.6 |
+| 4 (1ml, 2 resuc) | 3 | 3168.7 | 1056.2 | 31338.3 | 10446.1 |
+| 3 (2ml, 2 resuc) | 6 | 3414.2 | 569.0 | 26386.6 | 4397.8 |
+| 2 (4ml, 2 resuc) | 12 | 6847.7 | 570.6 | 39131.0 | 3260.9 |
+
+`VOLUME_CALIB_CH1 = 782.0`, `VOLUME_CALIB_CH2 = 5349.1` (averages). Both
+ratios are noisier than the amplitude-only version (channel 1 was a tight
+4151 to 5156 across the same four files), smaller suctioned volumes seem
+to keep proportionally more SNR-surviving peaks.
+
+**Known regression, found while checking this against file 5 (1ml, no
+resuction, true answer known).** Under the amplitude-only version this
+file read 0.90 ml channel 1, 0.79 ml channel 2 (`docs/volume-estimate-findings.md`).
+Under local SNR detection, channel 1's whole-file median peak height comes
+out 210.5, below the new 266.2 HIGH threshold, so it's classified MIDDLE
+and the volume field is withheld entirely instead of showing a number.
+Channel 2 still classifies correctly as HIGH but reads 0.62 ml, further
+from the true 1.0 ml than before. Only 5 candidate peaks survive on
+channel 1 for this file (4 on channel 2), this is the smallest file in the
+archive and may simply not have many strong impacts, but it means the
+fix that solved zero and water on channel 2 made this particular
+known-answer cross-check worse, not better. Kept as the live default
+anyway since the total-error case across the full labelled recording is
+still the best result found so far (see the sweep table above), but this
+is a real tradeoff, not a strict improvement, and worth more calibration
+data before trusting a single volume reading from it.
