@@ -17,6 +17,11 @@ pip install numpy pandas polars scipy pyqtgraph pyside6
 `pyqtgraph` and `pyside6` are only needed for `greatdatachunking_overview.py`,
 every other script here is plain numpy/pandas/polars/scipy.
 
+Once the venv exists, `./run_overview.sh` activates it and launches
+`greatdatachunking_overview.py` in one step, against the labelled Big
+pieces recording by default, or pass a different CSV path as the first
+argument.
+
 ## Get the labelled data
 
 From Moodle, IDP2026 → Phase 2: Experimentation → Marginum Measurement Data,
